@@ -14,197 +14,295 @@ const diffpatcher = jsondiffpatch.create({
   }
 });
 
+type ObjectPath = (string | number)[];
+
 function isSimpleObject(value: any) {
   return Object.prototype.toString.call(value) === '[object Object]' && !value._bsontype;
 }
 
 function stringify(value: any) {
-  console.log('stringify', value);
+  //console.log('stringify', value);
   // TODO: format ints, doubles, strings, other things properly
   return EJSON.stringify(value)
 }
 
-type ObjectPath = (string | number)[];
-
-function CollapsedItems({
-  type,
-  expand
-}: {
-  path: ObjectPath,
-  type: 'array' | 'object',
-  expand: () => void
-}) {
-  return (<div className="collapsed-items">
-    <div className="bracket open-bracket">{type === 'array' ? '[' : '{'}</div>
-    <button onClick={expand} className="ellipses">⋯</button>
-    <div className="bracket close-bracket">{type === 'array' ? ']' : '}'}</div>
-  </div>);
+function pathToKey(path: ObjectPath) {
+  const parts: string[] = [];
+  for (const part of path) {
+    if (typeof part === 'string') {
+      parts.push(`["${part.replace(/"/g, '\\')}"]`);
+    }
+    else {
+      parts.push(`[${part}]`);
+    }
+  }
+  return parts.join('');
 }
 
-function ExpandedItems({
-  type,
-  children,
-  collapse,
-  collapsible
-}: {
-  path: ObjectPath,
-  type: 'array' | 'object',
-  children: React.ReactNode,
-  collapse: () => void
-  collapsible: boolean
-}) {
-  return (<div className="expanded-items">
-    <div className="expanded-opening-line">
-      <div className="bracket open-bracket">{type === 'array' ? '[' : '{'}</div>
-      {collapsible && <button onClick={collapse} className="collapse-button">-</button>}
-    </div>
-    <div className="collapsible-children">{children}</div>
-    <div className="bracket close-bracket">{type === 'array' ? ']' : '}'}</div>
-  </div>);
-}
+type ChangeType = 'unchanged'|'changed'|'added'|'removed';
 
-function ChangeArrayItem({
+type ObjectWithChange = {
+  changeType: ChangeType;
+  value: any | any[]; // arrays can be nested
+  path: ObjectPath;
+  delta: Delta | null;
+};
+
+type PropertyWithChange = ObjectWithChange & {
+  objectKey: string;
+};
+
+function propertiesWithChanges({
   path,
   before,
   delta,
-  isLast
+  changeType = 'unchanged'
 }: {
   path: ObjectPath,
-  before: any | any[],
-  delta: Delta,
+  before: Document | null,
+  delta: Delta | null,
+  changeType?: ChangeType
+}) {
+  if (!before) {
+    // TODO: deal with adds
+    return [];
+  }
+
+  const properties: PropertyWithChange[] = Object.entries(before).map(([objectKey, value]) => {
+    const newPath = [...path, objectKey];
+    const property = {
+      changeType,
+      objectKey,
+      value,
+      path: newPath,
+      delta: null // TODO
+    };
+    // TODO: actually deal with the rest of the types
+    return property;
+  });
+
+  return properties;
+}
+
+type ItemWithChange = ObjectWithChange & {
+  index: number;
+};
+
+function itemsWithChanges({
+  path,
+  before,
+  delta,
+  changeType = 'unchanged'
+}: {
+  path: ObjectPath,
+  before: any[] | null,
+  delta: Delta | null,
+  changeType?: ChangeType
+}) {
+  if (!before) {
+    // TODO: deal with adds
+    return [];
+  }
+  const items: ItemWithChange[] = before.map((value, index) => {
+    const newPath = [...path, index];
+    const item = {
+      changeType,
+      index,
+      value,
+      path: newPath,
+      delta: null // TODO
+    };
+    // TODO: actually deal with the rest of the types
+    return item;
+  });
+  return items;
+}
+
+function ChangeArrayItem({
+  item,
+  isLast
+}: {
+  item: ItemWithChange,
   isLast: boolean,
 }) {
+  // TODO: deal with nested arrays
   return (<div className="change-object-item">
     <div className="change-array-value">
-      <ChangeBranch path={path} before={before} delta={delta}/>
+      <ChangeLeaf obj={item} />
       {!isLast && <div className="change-array-separator">,</div>}
     </div>
   </div>);
 }
 
 function ChangeArray({
-  path,
-  before,
-  delta,
-  initialOpen
+  // TODO: for nested arrays this should take item as well. or we need two components
+  obj,
+  isOpen
 }: {
-  path: ObjectPath,
-  before: any[],
-  delta: Delta,
-  initialOpen?: boolean
+  obj: ObjectWithChange,
+  isOpen: boolean
 }) {
-  const [isOpen, setIsOpen] = useState(initialOpen ?? false);
-
-  function collapse() {
-    setIsOpen(false);
-  }
-
-  function expand() {
-    setIsOpen(true);
-  }
-
   //console.log('ChangeArray', before);
   // TODO: actually take delta into account
+  const items = itemsWithChanges({
+    path: obj.path,
+    before: obj.value, // TODO: only if the value was changed, unchanged or removed. not for added
+    delta: obj.delta,
+    changeType: obj.changeType
+  });
   if (isOpen) {
-    return (<ExpandedItems path={path} type="array" collapse={collapse} collapsible={!initialOpen}>
-      {before.map((value: any, index: number) => {
+    return (<div className="change-array">
+      {items.map((item) => {
         // TODO: delta is wrong
-        return <ChangeArrayItem path={[...path, index]} delta={delta} before={value} isLast={index === before.length - 1} />
+        const key = pathToKey(item.path);
+        console.log(key);
+        return <ChangeArrayItem key={key} item={item} isLast={item.index === item.value.length - 1}/>
       })}
-    </ExpandedItems>);
+    </div>);
   }
 
-  return <CollapsedItems path={path} type="array" expand={expand} />;
-  /*
-
-      return <>
-        <ChangeBranch path={[...path, index]} delta={delta} before={value} />
-        {(index !== before.length-1) && <span className="change-array-separator">,</span>}
-      </>;
-    */
+  //return <CollapsedItems path={path} type="array" expand={expand} />;
+  return null;
 }
 
-function ChangeObjectProperty({
-  path,
-  objectKey,
-  before,
-  delta,
+function ChangeObjectPropertyObject({
+  property
 }: {
-  path: ObjectPath,
-  objectKey: string,
-  before: any | any[],
-  delta: Delta,
+  property: PropertyWithChange
 }) {
-  //console.log('ChangeObjectProperty', objectKey, before);
-  return (<div className="change-object-property">
-    <div className="change-object-key">{objectKey}:</div>
-    <div className="change-object-value">
-      <ChangeBranch path={path} before={before} delta={delta}/>
+  const [isOpen, setIsOpen] = useState(false);
+
+  const toggleIsOpen = function () {
+    setIsOpen(!isOpen);
+  };
+
+  const numKeys = Object.keys(property.value).length;
+  const text = `Object (${numKeys})`;
+
+  //console.log('ChangeObjectPropertyObject', objectKey, before);
+  return (<div className="change-object-property change-object-property-object">
+    <div className="change-object-property-summary">
+      <button className="toggle-object-property" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
+      <div className="change-object-key">{property.objectKey}:</div>
+      <div className="change-object-property-summary-text">{text}</div>
+    </div>
+    <ChangeObject obj={property} isOpen={isOpen}/>
+  </div>);
+}
+
+function ChangeObjectPropertyArray({
+  property
+}: {
+  property: PropertyWithChange
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const toggleIsOpen = function () {
+    setIsOpen(!isOpen);
+  };
+
+  const numItems = property.value.length;
+  const text = `Array (${numItems})`;
+
+  //console.log('ChangeObjectPropertyArray', objectKey, before);
+  return (<div className="change-object-property change-object-property-array">
+    <div className="change-object-property-summary">
+      <button className="toggle-object-property" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
+      <div className="change-object-key">{property.objectKey}:</div>
+      <div className="change-object-property-summary-text">{text}</div>
+    </div>
+    <ChangeArray obj={property} isOpen={isOpen}/>
+  </div>);
+}
+
+function ChangeObjectPropertyLeaf({
+  property
+}: {
+  property: PropertyWithChange
+}) {
+  return (<div className="change-object-property change-object-property-leaf">
+    <div className="change-object-property-summary">
+      <div className="change-object-key">{property.objectKey}:</div>
+      <ChangeLeaf obj={property} />
     </div>
   </div>);
 }
 
-function ChangeObject({
-  path,
-  before,
-  delta,
-  initialOpen
+function ChangeObjectProperty({
+  property
 }: {
-  path: ObjectPath,
-  before: Document,
-  delta: Delta,
-  initialOpen?: boolean
+  property: PropertyWithChange
+}) {
+
+  if (Array.isArray(property.value)) {
+    // array summary followed by array items if expanded
+    return <ChangeObjectPropertyArray property={property} />
+  } else if (isSimpleObject(property.value)) {
+    // object summary followed by object properties if expanded
+    return <ChangeObjectPropertyObject property={property} />
+  }
+
+  // simple/bson value only
+  return <ChangeObjectPropertyLeaf property={property} />
+
+}
+
+function ChangeObject({
+  obj,
+  isOpen
+}: {
+  obj: ObjectWithChange,
+  isOpen: boolean
 }) {
   //console.log('ChangeObject', before);
 
-  const [isOpen, setIsOpen] = useState(initialOpen ?? false);
-
-  function collapse() {
-    setIsOpen(false);
-  }
-
-  function expand() {
-    setIsOpen(true);
-  }
-
   // TODO: actually take delta into account
+  const properties = propertiesWithChanges({
+    path: obj.path,
+    before: obj.value, // TODO: only if the value was changed, unchanged or removed. not for added
+    delta: obj.delta,
+    changeType: obj.changeType
+  });
   if (isOpen) {
-    return (<ExpandedItems path={path} type="object" collapse={collapse} collapsible={!initialOpen}>
-      {Object.entries(before).map(([key, value]: [string, any]) => {
+    return (<div className="change-object">
+      {properties.map((property) => {
         // TODO: delta is wrong
-        return <ChangeObjectProperty path={[...path, key]} delta={delta} objectKey={key} before={value} />
+        const key = pathToKey(property.path);
+        console.log(key);
+        return <ChangeObjectProperty key={key} property={property} />
       })}
-    </ExpandedItems>);
+    </div>);
   }
 
-  return <CollapsedItems path={path} type="object" expand={expand} />;
+  return null
+}
+
+function ChangeLeaf({
+  obj,
+}: {
+  obj: ObjectWithChange
+}) {
+  return <div className="change-value">{stringify(obj.value)}</div>;
 }
 
 function ChangeBranch({
-  path,
-  before,
-  //after,
-  delta,
-  initialOpen
+  obj,
+  isOpen = false
 }: {
-  path: ObjectPath,
-  before: Document | any[],
-  //after: Document | any[]
-  delta: Delta,
-  initialOpen?: boolean
+  obj: ObjectWithChange,
+  isOpen?: boolean
 }) {
   //console.log('ChangeBranch', before);
-  if (Array.isArray(before)) {
-    console.log('array', before);
-    return <ChangeArray path={path} before={before} delta={delta} initialOpen={initialOpen} />
-  } else if (isSimpleObject(before)) {
-    console.log('object', before);
-    return <ChangeObject path={path} before={before} delta={delta} initialOpen={initialOpen} />
+  if (Array.isArray(obj.value)) {
+    //console.log('array', before);
+    return <ChangeArray obj={obj} isOpen={isOpen} />
+  } else if (isSimpleObject(obj.value)) {
+    //console.log('object', before);
+    return <ChangeObject obj={obj} isOpen={isOpen} />
   } else {
     // simple value or BSON value
-    console.log('simple', before);
-    // TODO
-    return <div className="change-value">{stringify(before)}</div>;
+    //console.log('simple', before);
+    return <ChangeLeaf obj={obj} />
   }
 }
 
@@ -217,11 +315,14 @@ export function ChangeView({
   before: Document,
   after: Document
 }) {
-  const delta = diffpatcher.diff(before, after);
-  if (!delta) {
-    return null;
-  }
-  return <div className="change-view"><ChangeBranch path={[name]} delta={delta} before={before} initialOpen={true}/></div>;
+  const delta = diffpatcher.diff(before, after) ?? null;
+  const obj: ObjectWithChange = {
+    path: [name],
+    value: before,
+    delta,
+    changeType: 'unchanged',
+  };
+  return <div className="change-view"><ChangeBranch obj={obj} isOpen={true}/></div>;
   //const html = jsondiffpatch.formatters.html.format(delta as Delta, before);
   //return <div className="change-view" dangerouslySetInnerHTML={{__html: html}} />
 }

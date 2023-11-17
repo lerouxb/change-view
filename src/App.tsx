@@ -5,7 +5,7 @@ import { fixtures } from './fixtures';
 import { ChangeView } from './change-view';
 import './App.css';
 
-const DEFAULT_FIXTURE = 'all-types-remove';
+const DEFAULT_FIXTURE = 'all-types-changed';
 
 function App() {
   const [fixtureName, setFixtureName] = useState(() => {
@@ -33,19 +33,16 @@ function App() {
         </select>
       </div>
       <div className="card">
-        <div className="columns">
-          <div>
-            <h3>Before</h3>
-            <pre className="multiline">{EJSON.stringify(fixture.before, undefined, 2)}</pre>
-          </div>
-          <div>
-            <h3>After</h3>
-            <pre className="multiline">{EJSON.stringify(fixture.after, undefined, 2)}</pre>
-          </div>
-          <div>
-            <h3>Change</h3>
-            <ChangeView key={fixture.name} name={fixture.name} before={fixture.before} after={fixture.after}/>
-          </div>
+        <ChangeView key={fixture.name} name={fixture.name} before={fixture.before} after={fixture.after}/>
+      </div>
+      <div className="columns">
+        <div>
+          <h3>Before</h3>
+          <pre className="multiline">{EJSON.stringify(fixture.before, undefined, 2)}</pre>
+        </div>
+        <div>
+          <h3>After</h3>
+          <pre className="multiline">{EJSON.stringify(fixture.after, undefined, 2)}</pre>
         </div>
       </div>
     </div>

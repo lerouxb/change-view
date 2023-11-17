@@ -1,3 +1,4 @@
+import _ from 'lodash';
 import { Buffer } from 'buffer';
 import {
   BSONRegExp,
@@ -24,7 +25,7 @@ export type Fixture = {
   after: Document
 };
 
-const allTypesDoc = {
+const allTypesDoc: Document = {
   _id: new ObjectId('642d766b7300158b1f22e972'),
   double: new Double(1.2), // Double, 1, double
   string: 'Hello, world!', // String, 2, string
@@ -68,6 +69,10 @@ const allTypesDoc = {
   dbRef: new DBRef('namespace', new ObjectId('642d76b4b7ebfab15d3c4a78')), // not actually a separate type, just a convention
 };
 
+const allTypesDocChanged = _.clone(allTypesDoc);
+
+allTypesDocChanged.double = 1.3;
+
 export const fixtures: Fixture[] = [
   {
     name: 'simple-add',
@@ -85,5 +90,9 @@ export const fixtures: Fixture[] = [
     name: 'all-types-remove',
     before: allTypesDoc,
     after: {}
+  }, {
+    name: 'all-types-changed',
+    before: allTypesDoc,
+    after: allTypesDocChanged
   }
 ];
