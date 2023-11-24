@@ -5,7 +5,7 @@ import { fixtures } from './fixtures';
 import { ChangeView } from './change-view';
 import './App.css';
 
-const DEFAULT_FIXTURE = 'same simple type';
+const DEFAULT_FIXTURE = 'all types changed';
 
 function App() {
   const [fixtureName, setFixtureName] = useState(() => {
