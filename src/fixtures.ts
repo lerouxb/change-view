@@ -76,6 +76,11 @@ allTypesDocChanged.double = 1.3;
 
 export const fixtures: Fixture[] = [
   {
+    name: 'all types identical',
+    before: allTypesDoc,
+    after: _.clone(allTypesDoc)
+  },
+  {
     name: 'simple add',
     before: {},
     after: { foo: 'bar' }
