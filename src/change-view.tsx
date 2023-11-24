@@ -370,9 +370,10 @@ function ChangeArrayItemArray({
     setIsOpen(!isOpen);
   };
 
-  const value = item.changeType === 'added' ? item.newValue : item.oldValue;
-  const numItems = value.length;
-  const text = `Array (${numItems})`;
+  //const value = item.changeType === 'added' ? item.newValue : item.oldValue;
+  //const numItems = value.length;
+  //const text = `Array (${numItems})`;
+  const text = 'Array';
 
   return (<div className="change-array-item change-array-item-array">
     <div className={`change-array-item-summary change-summary-${getSummaryClassName(item)}`}>
@@ -396,9 +397,10 @@ function ChangeArrayItemObject({
     setIsOpen(!isOpen);
   };
 
-  const value = item.changeType === 'added' ? item.newValue : item.oldValue;
-  const numKeys = Object.keys(value).length;
-  const text = `Object (${numKeys})`;
+  //const value = item.changeType === 'added' ? item.newValue : item.oldValue;
+  //const numKeys = Object.keys(value).length;
+  //const text = `Object (${numKeys})`;
+  const text = 'Object';
 
   return (<div className="change-array-item change-array-item-object">
     <div className={`change-array-item-summary change-summary-${getSummaryClassName(item)}`}>
