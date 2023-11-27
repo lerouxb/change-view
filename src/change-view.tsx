@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import React, { useState } from 'react';
+import React, { useState, useContext, createContext } from 'react';
 
 import type { Document } from 'bson';
 import { EJSON } from 'bson';
@@ -13,13 +13,9 @@ const diffpatcher = jsondiffpatch.create({
   arrays: {
     detectMove: false
   },
-  objectHash: function (obj: any) {
-    return stringify(obj);
-  },
   textDiff: {
-    minLength: Infinity
-  },
-  cloneDiffValues: true
+    minLength: Infinity // don't do a text diff on bson values
+  }
 });
 
 type ObjectPath = (string | number)[];
@@ -29,10 +25,6 @@ function isSimpleObject(value: any) {
 }
 
 function stringify(value: any) {
-  if (typeof value === 'string') {
-    return value;
-  }
-
   if (value?.inspect) {
     // TODO: this is a hack - we'd use our existing formatters
     const s = value.inspect();
@@ -68,9 +60,10 @@ type ChangeType = 'unchanged'|'changed'|'added'|'removed';
 type ObjectWithChange = {
   implicitChangeType: ChangeType;
   changeType: ChangeType;
-  oldValue?: any | any[];
-  newValue?: any | any[];
-  path: ObjectPath;
+  leftPath?: ObjectPath;
+  leftValue?: any | any[];
+  rightPath?: ObjectPath;
+  rightValue?: any | any[];
   delta: Delta | null;
 };
 
@@ -93,54 +86,55 @@ function assert(bool: boolean, message: string) {
   }
 }
 
-/*
-function deBSON(properties: PropertyWithChange[], key: string, change: any) {
-  if (Array.isArray(change)) {
-    // only non-bson add/update involved
-    return change;
-  }
+type Branch = {
+  path: ObjectPath;
+  value: any | any[];
+};
 
-  const existingProperty = properties.find((p) => p.objectKey === key);
-  if (existingProperty && existingProperty.oldValue._bsontype) {
-    if (key === 'binData') {
-      console.log(key, existingProperty.oldValue, change);
-    }
-    const newValue = _.clone(existingProperty.oldValue);
-    jsondiffpatch.patch(newValue, change);
-    return [existingProperty.oldValue, newValue];
-  }
-
-  return change;
-}
-*/
+type BranchesWithChanges = {
+  delta: Delta | null, // delta is null for unchanged branches
+  implicitChangeType: ChangeType
+} & (
+  | { left: Branch, right: Branch } // changed | unchanged
+  | { left: never, right: Branch } // added
+  | { left: Branch, right: never } // removed
+);
 
 function propertiesWithChanges({
-  path,
-  before,
+  left,
+  right,
   delta,
-  implicitChangeType = 'unchanged'
-}: {
-  path: ObjectPath,
-  before: Document | null,
-  delta: Delta | null,
-  implicitChangeType?: ChangeType
-}) {
-  if (!before) {
-    // you can't actually get here because we'd be treating this as an
-    // implicitChangeType='added' and changeType='unchanged'
-    assert(false, 'no before properties');
-    return [];
-  }
+  implicitChangeType
+}: BranchesWithChanges) {
+  // for unchanged, changed or removed objects we use the left value, otherwise
+  // we use the right value because that's the only one available
+  const value = implicitChangeType === 'added' ? right.value : left.value;
 
-  const properties: PropertyWithChange[] = Object.entries(before).map(([objectKey, oldValue]) => {
-    const newPath = [...path, objectKey];
+  const properties: PropertyWithChange[] = Object.entries(value).map(([objectKey, leftValue]) => {
+    const leftPath = left ? [...left.path as ObjectPath, objectKey]
+      : right ? undefined
+      : [objectKey];
+
+    const rightPath = right ? [...right.path as ObjectPath, objectKey]
+      : left ? undefined
+      : [objectKey];
+
     const property: PropertyWithChange = {
       implicitChangeType,
+      // might change changeType to 'changed' or 'removed' below
       changeType: 'unchanged',
       objectKey,
-      oldValue,
-      path: newPath,
-      delta: null // see below
+      leftValue: leftPath ? leftValue : undefined,
+      // we'll fill in rightValue below if the value was added. This is just
+      // handling the case where it didn't change.
+      rightValue: rightPath && right ? right.value[objectKey] : undefined,
+      leftPath,
+      // we'll remove rightPath below if the value was removed
+      rightPath,
+      // we'll fill in delta below if this is an unchanged object with changes somewhere inside it
+      // ie. { foo: {} } => foo: { bar: 'baz' }. foo's value is "unchanged"
+      // itself, but it has a delta because bar inside it changed.
+      delta: null
     };
     return property;
   });
@@ -150,9 +144,9 @@ function propertiesWithChanges({
     for (const [key, change] of Object.entries(delta)) {
       /*
       delta = {
-        property1: [ newValue1 ], // obj[property1] = newValue1
-        property2: [ oldValue2, newValue2 ], // obj[property2] = newValue2 (and previous value was oldValue2)
-        property5: [ oldValue5, 0, 0 ] // delete obj[property5] (and previous value was oldValue5)
+        property1: [ rightValue1 ], // obj[property1] = rightValue1
+        property2: [ leftValue2, rightValue2 ], // obj[property2] = rightValue2 (and previous value was leftValue2)
+        property5: [ leftValue5, 0, 0 ] // delete obj[property5] (and previous value was leftValue5)
       }
       */
       if (Array.isArray(change)) {
@@ -162,15 +156,16 @@ function propertiesWithChanges({
             implicitChangeType,
             changeType: 'added',
             objectKey: key,
-            newValue: change[0],
-            path: [...path, key],
+            // NOTE: no leftValue or leftPath
+            rightValue: change[0],
+            rightPath: [...right.path, key],
             delta: null
           });
         } else if (change.length === 2) {
           // update
           const existingProperty = properties.find((p) => p.objectKey === key);
           if (existingProperty) {
-            existingProperty.newValue = change[1]; // 0 is the old value
+            existingProperty.rightValue = change[1]; // 0 is the old value
             existingProperty.changeType = 'changed';
           } else {
             assert(false, `property with key "${key} does not exist"`);
@@ -180,6 +175,8 @@ function propertiesWithChanges({
           const existingProperty = properties.find((p) => p.objectKey === key);
           if (existingProperty) {
             existingProperty.changeType = 'removed';
+            delete existingProperty.rightValue;
+            delete existingProperty.rightPath;
           } else {
             assert(false, `property with key "${key} does not exist"`);
           }
@@ -205,8 +202,8 @@ function propertiesWithChanges({
     changed = false;
     const index = properties.findIndex((property) => {
       if (property.changeType === 'changed') {
-        const beforeType = getType(property.oldValue);
-        const afterType = getType(property.newValue);
+        const beforeType = getType(property.leftValue);
+        const afterType = getType(property.rightValue);
         if (beforeType !== afterType) {
           return true;
         }
@@ -220,8 +217,8 @@ function propertiesWithChanges({
         implicitChangeType,
         changeType: 'removed',
         objectKey: property.objectKey,
-        oldValue: property.oldValue,
-        path: property.path,
+        leftPath: property.leftPath,
+        leftValue: property.leftValue,
         delta: null
       };
 
@@ -229,11 +226,33 @@ function propertiesWithChanges({
         implicitChangeType,
         changeType: 'added',
         objectKey: property.objectKey,
-        newValue: property.newValue,
-        path: property.path,
+        rightPath: property.leftPath,
+        rightValue: property.rightValue,
         delta: null
       };
       properties.splice(index, 1, deleteProperty, addProperty);
+    }
+  }
+
+  for (const property of properties) {
+    if (property.leftPath && property.leftValue === undefined) {
+      console.log(property);
+      assert(false, 'property: leftPath, but no leftValue')
+    }
+
+    if (property.rightPath && property.rightValue === undefined) {
+      console.log(property, property.rightPath, property.rightValue);
+      assert(false, 'property: rightPath, but no rightValue')
+    }
+
+    if (property.leftValue !== undefined && !property.leftPath) {
+      console.log(property);
+      assert(false, 'property: leftValue, but no leftPath')
+    }
+
+    if (property.rightValue !== undefined && !property.rightPath) {
+      console.log(property);
+      assert(false, 'property: rightValue, but no rightPath')
     }
   }
 
@@ -255,31 +274,42 @@ type ItemWithChange = ObjectWithChange & {
 };
 
 function itemsWithChanges({
-  path,
-  before,
+  left,
+  right,
   delta,
-  implicitChangeType = 'unchanged'
-}: {
-  path: ObjectPath,
-  before: any[] | null,
-  delta: Delta | null,
-  implicitChangeType?: ChangeType
-}) {
-  if (!before) {
-    // you can't actually get here because we'd be treating this as an
-    // implicitChangeType='added' and changeType='unchanged'
-    console.log('no before items', {path, before, delta, implicitChangeType});
-    return [];
-  }
-  const items: ItemWithChange[] = before.map((oldValue, index) => {
-    const newPath = [...path, index];
+  implicitChangeType
+}: BranchesWithChanges) {
+  // for unchanged, changed or removed objects we use the left value, otherwise
+  // we use the right value because that's the only one available
+  const value = (implicitChangeType === 'added' ? right.value : left.value) as any[];
+
+  const items: ItemWithChange[] = value.map((leftValue, index) => {
+    const leftPath = left ? [...left.path as ObjectPath, index]
+      : right ? undefined
+      : [index];
+
+    const rightPath = right ? [...right.path as ObjectPath, index]
+      : left ? undefined
+      : [index];
+
     const item: ItemWithChange = {
-      implicitChangeType: implicitChangeType,
+      implicitChangeType,
+      // we might change changeType to 'removed' below. arrays don't have
+      // 'changed'. Only unchanged, added or removed.
       changeType: 'unchanged',
       index,
-      oldValue,
-      path: newPath,
-      delta: null, // see below
+      leftValue: leftPath ? leftValue : undefined,
+      rightValue: rightPath ? leftValue : undefined, // assume it is unchanged
+      // we'll fill in rightValue below if the value was added
+      leftPath,
+      // This only handles the case where the value is unchanged. we'll remove
+      // rightPath below if the value was removed. we don't have arrays that
+      // have changed values. only unchanged, added or removed.
+      rightPath,
+      // we'll fill in delta below if this is an unchanged array with changes somewhere inside it
+      // ie. { foo: [] } => { foo: [1] }. foo's value is "unchanged" itself, but
+      // it has a delta because 1 is added inside it
+      delta: null
     };
     return item;
   });
@@ -297,6 +327,8 @@ function itemsWithChanges({
       const existingItem = items[index];
       if (existingItem) {
         items[index].changeType = 'removed';
+        delete items[index].rightValue;
+        delete items[index].rightPath;
       }
       else {
         assert(false, `item with index "${index}" does not exist`);
@@ -337,8 +369,9 @@ function itemsWithChanges({
             implicitChangeType,
             changeType: 'added',
             index,
-            newValue: change[0],
-            path: [...path, index],
+            // NOTE: no leftValue or leftPath
+            rightPath: [...(right ?? left).path, index],
+            rightValue: change[0],
             delta: null,
           });
 
@@ -352,13 +385,14 @@ function itemsWithChanges({
   }
 
   // turn changes where the type changed into remove followed by add because we can't easily visualise it on one line
+  // TODO: is this even possible? Just said there is no "changed" in arrays above..
   let changed = true;
   while (changed) {
     changed = false;
     const index = items.findIndex((item) => {
       if (item.changeType === 'changed') {
-        const beforeType = getType(item.oldValue);
-        const afterType = getType(item.newValue);
+        const beforeType = getType(item.leftValue);
+        const afterType = getType(item.rightValue);
         if (beforeType !== afterType) {
           return true;
         }
@@ -372,8 +406,8 @@ function itemsWithChanges({
         implicitChangeType,
         changeType: 'removed',
         index: property.index,
-        oldValue: property.oldValue,
-        path: property.path,
+        leftPath: property.leftPath,
+        leftValue: property.leftValue,
         delta: null
       };
 
@@ -381,11 +415,33 @@ function itemsWithChanges({
         implicitChangeType,
         changeType: 'added',
         index: property.index,
-        newValue: property.newValue,
-        path: property.path,
+        rightPath: property.leftPath,
+        rightValue: property.rightValue,
         delta: null
       };
       items.splice(index, 1, deleteItem, addItem);
+    }
+  }
+
+  for (const item of items) {
+    if (item.leftPath && item.leftValue === undefined) {
+      console.log(item);
+      assert(false, 'item: leftPath, but no leftValue')
+    }
+
+    if (item.rightPath && item.rightValue === undefined) {
+      console.log(item, item.rightPath, item.rightValue);
+      assert(false, 'item: rightPath, but no rightValue')
+    }
+
+    if (item.leftValue !== undefined && !item.leftPath) {
+      console.log(item);
+      assert(false, 'item: leftValue, but no leftPath')
+    }
+
+    if (item.rightValue !== undefined && !item.rightPath) {
+      console.log('moo', item);
+      assert(false, 'item: rightValue, but no rightPath')
     }
   }
 
@@ -403,13 +459,13 @@ function ChangeArrayItemArray({
     setIsOpen(!isOpen);
   };
 
-  //const value = item.changeType === 'added' ? item.newValue : item.oldValue;
+  //const value = item.changeType === 'added' ? item.rightValue : item.leftValue;
   //const numItems = value.length;
   //const text = `Array (${numItems})`;
   const text = 'Array';
 
   return (<div className="change-array-item change-array-item-array">
-    <div className={`change-array-item-summary change-summary-${getSummaryClassName(item)}`}>
+    <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
       <button className="toggle-array-item" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
       <div className="change-array-index">{item.index}:</div>
       <div className="change-array-item-summary-text">{text}</div>
@@ -430,13 +486,13 @@ function ChangeArrayItemObject({
     setIsOpen(!isOpen);
   };
 
-  //const value = item.changeType === 'added' ? item.newValue : item.oldValue;
+  //const value = item.changeType === 'added' ? item.rightValue : item.leftValue;
   //const numKeys = Object.keys(value).length;
   //const text = `Object (${numKeys})`;
   const text = 'Object';
 
   return (<div className="change-array-item change-array-item-object">
-    <div className={`change-array-item-summary change-summary-${getSummaryClassName(item)}`}>
+    <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
       <button className="toggle-array-item" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
       <div className="change-array-index">{item.index}:</div>
       <div className="change-array-item-summary-text">{text}</div>
@@ -452,7 +508,7 @@ function ChangeArrayItemLeaf({
 }) {
 
   return (<div className="change-array-item change-array-item-leaf">
-    <div className={`change-array-item-summary change-summary-${getSummaryClassName(item)}`}>
+    <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
       <div className="change-array-index">{item.index}:</div>
       <div className="change-array-item-value"><ChangeLeaf obj={item} /></div>
     </div>
@@ -464,7 +520,7 @@ function ChangeArrayItem({
 }: {
   item: ItemWithChange,
 }) {
-  const value = item.changeType === 'added' ? item.newValue : item.oldValue;
+  const value = item.changeType === 'added' ? item.rightValue : item.leftValue;
   if (Array.isArray(value)) {
     // array summary followed by array items if expanded
     return <ChangeArrayItemArray item={item} />
@@ -481,6 +537,10 @@ function Sep() {
   return <span className="separator">, </span>;
 }
 
+function getPath(obj: ObjectWithChange) {
+  return (obj.rightPath ?? obj.leftPath) as ObjectPath;
+}
+
 function ChangeArray({
   obj,
   isOpen
@@ -490,11 +550,17 @@ function ChangeArray({
 }) {
   const implicitChangeType = getImplicitChangeType(obj);
   const items = itemsWithChanges({
-    path: obj.path,
-    before: obj.changeType === 'added' ? obj.newValue : obj.oldValue,
+    left: obj.leftPath ? {
+      path: obj.leftPath as ObjectPath,
+      value: obj.leftValue as any | any[]
+    } as Branch : undefined,
+    right: obj.rightPath ? {
+      path: obj.rightPath as ObjectPath,
+      value: obj.rightValue as any | any[]
+    } as Branch : undefined,
     delta: obj.delta,
     implicitChangeType
-  });
+  } as BranchesWithChanges);
 
   if (isOpen) {
     // TODO: this would be even nicer in place of the "Array" text and then we
@@ -504,7 +570,7 @@ function ChangeArray({
     // TODO: we might want to go further and only do this for simple values like
     // strings, numbers, booleans, nulls, etc. ie. not bson types because some
     // of those might  take up a lot of space?
-    if (items.every((item) => getType(item.changeType === 'added' ? item.newValue : item.oldValue) === 'leaf')) {
+    if (items.every((item) => getType(item.changeType === 'added' ? item.rightValue : item.leftValue) === 'leaf')) {
       // if it is an array containing just simple values then we can special-case it and output it all on one line
       const classes = ['change-array-inline'];
 
@@ -516,9 +582,10 @@ function ChangeArray({
         classes.push('change-array-inline-removed');
       }
 
+
       return (<div className="change-array-inline-wrap"><div className={classes.join(' ')}>[
         {items.map((item, index) => {
-          const key = pathToKey(item.path, item.changeType);
+          const key = pathToKey(getPath(item), item.changeType);
           return <span key={key}>
             <ChangeLeaf obj={item} />
             {index !== items.length -1 && <Sep/>}
@@ -529,13 +596,12 @@ function ChangeArray({
 
     return (<div className="change-array">
       {items.map((item) => {
-        const key = pathToKey(item.path, item.changeType);
+        const key = pathToKey(getPath(item), item.changeType);
         return <ChangeArrayItem key={key} item={item}/>
       })}
     </div>);
   }
 
-  //return <CollapsedItems path={path} type="array" expand={expand} />;
   return null;
 }
 
@@ -550,13 +616,13 @@ function ChangeObjectPropertyObject({
     setIsOpen(!isOpen);
   };
 
-  //const value = property.changeType === 'added' ? property.newValue : property.oldValue;
+  //const value = property.changeType === 'added' ? property.rightValue : property.leftValue;
   //const numKeys = Object.keys(value).length;
   //const text = `Object (${numKeys})`;
   const text = 'Object';
 
   return (<div className="change-object-property change-object-property-object">
-    <div className={`change-object-property-summary change-summary-${getSummaryClassName(property)}`}>
+    <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
       <button className="toggle-object-property" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
       <div className="change-object-key">{property.objectKey}:</div>
       <div className="change-object-property-summary-text">{text}</div>
@@ -576,13 +642,13 @@ function ChangeObjectPropertyArray({
     setIsOpen(!isOpen);
   };
 
-  //const value = property.changeType === 'added' ? property.newValue : property.oldValue;
+  //const value = property.changeType === 'added' ? property.rightValue : property.leftValue;
   //const numItems = value.length;
   //const text = `Array (${numItems})`;
   const text = 'Array';
 
   return (<div className="change-object-property change-object-property-array">
-    <div className={`change-object-property-summary change-summary-${getSummaryClassName(property)}`}>
+    <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
       <button className="toggle-object-property" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
       <div className="change-object-key">{property.objectKey}:</div>
       <div className="change-object-property-summary-text">{text}</div>
@@ -597,7 +663,7 @@ function ChangeObjectPropertyLeaf({
   property: PropertyWithChange
 }) {
   return (<div className="change-object-property change-object-property-leaf">
-    <div className={`change-object-property-summary change-summary-${getSummaryClassName(property)}`}>
+    <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
       <div className="change-object-key">{property.objectKey}:</div>
       <div className="change-object-property-value"><ChangeLeaf obj={property} /></div>
     </div>
@@ -609,7 +675,7 @@ function ChangeObjectProperty({
 }: {
   property: PropertyWithChange
 }) {
-  const value = property.changeType === 'added' ? property.newValue : property.oldValue;
+  const value = property.changeType === 'added' ? property.rightValue : property.leftValue;
   if (Array.isArray(value)) {
     // array summary followed by array items if expanded
     return <ChangeObjectPropertyArray property={property}/>
@@ -630,17 +696,23 @@ function ChangeObject({
   isOpen: boolean
 }) {
   // A sample object / sub-document. ie. not an array and not a leaf.
-
+  const implicitChangeType = getImplicitChangeType(obj);
   const properties = propertiesWithChanges({
-    path: obj.path,
-    before: obj.changeType === 'added' ? obj.newValue : obj.oldValue,
+    left: obj.leftPath ? {
+      path: obj.leftPath as ObjectPath,
+      value: obj.leftValue as any | any[]
+    } as Branch : undefined,
+    right: obj.rightPath ? {
+      path: obj.rightPath as ObjectPath,
+      value: obj.rightValue as any | any[]
+    } as Branch : undefined,
     delta: obj.delta,
-    implicitChangeType: getImplicitChangeType(obj)
-  });
+    implicitChangeType
+  } as BranchesWithChanges);
   if (isOpen) {
     return (<div className="change-object">
       {properties.map((property) => {
-        const key = pathToKey(property.path, property.changeType);
+        const key = pathToKey(getPath(property), property.changeType);
         return <ChangeObjectProperty key={key} property={property} />
       })}
     </div>);
@@ -679,13 +751,21 @@ function getRightClassName(obj: ObjectWithChange) {
   return obj.changeType === 'changed' ? 'change-added' : 'added';
 }
 
-function getSummaryClassName(obj: ObjectWithChange) {
+function getChangeType(obj: ObjectWithChange) {
   if (['added', 'removed'].includes(obj.implicitChangeType)) {
     // these are "sticky" as we descend
     return obj.implicitChangeType;
   }
 
   return obj.changeType;
+}
+
+function lookupValue(path: ObjectPath, value: any): any {
+  const [head, ...rest] = path;
+  if (rest.length) {
+    return lookupValue(rest, value[head]);
+  }
+  return value[head];
 }
 
 function ChangeLeaf({
@@ -696,13 +776,33 @@ function ChangeLeaf({
   // Anything that is not an object or array. This includes simple javascript
   // values like strings, numbers, booleans and undefineds, but also dates or
   // bson values.
-  const oldValue = stringify(obj.oldValue);
-  const includeLeft = ['unchanged', 'changed', 'removed'].includes(obj.changeType);
-  const includeRight = ['changed', 'added'].includes(obj.changeType);
+  const { left, right } = useContext(LeftRightContext) as LeftRightContextType;
+
+  const toString = (path: ObjectPath, value: any) => {
+    const v = lookupValue(path, value);
+    return stringify(v);
+  };
+
+  const changeType = getChangeType(obj);
+  const includeLeft = ['unchanged', 'changed', 'removed'].includes(changeType);
+  if (includeLeft) {
+    if (!obj.leftPath) {
+      console.log(`leftPath is required because changeType is ${changeType}`, obj);
+    }
+    assert(!!obj.leftPath, 'leftPath is required');
+  }
+
+  const includeRight = ['changed', 'added'].includes(changeType);
+  if (includeRight) {
+    if (!obj.rightPath) {
+      console.log(`rightPath is required because changeType is ${changeType}`, obj);
+    }
+    assert(!!obj.rightPath, 'rightPath is required');
+  }
 
   return <div className="change-value">
-    {includeLeft && <div className={getLeftClassName(obj)}>{oldValue}</div>}
-    {includeRight && <div className={getRightClassName(obj)}>{stringify(obj.newValue)}</div>}
+    {includeLeft && <div className={getLeftClassName(obj)}>{toString(obj.leftPath as ObjectPath, left)}</div>}
+    {includeRight && <div className={getRightClassName(obj)}>{toString(obj.rightPath as ObjectPath, right)}</div>}
   </div>;
 }
 
@@ -722,6 +822,13 @@ function unBSON(value: any | any[]): any | any[] {
   }
 }
 
+type LeftRightContextType = {
+  left: any;
+  right: any;
+}
+
+const LeftRightContext = createContext<LeftRightContextType | null>(null);
+
 export function ChangeView({
   name,
   before,
@@ -736,13 +843,17 @@ export function ChangeView({
   const delta = diffpatcher.diff(left, right) ?? null;
   console.log(delta);
   const obj: ObjectWithChange = {
-    path: [name],
-    oldValue: before,
+    leftPath: [],
+    leftValue: before,
+    rightPath: [],
+    rightValue: after,
     delta,
     implicitChangeType: 'unchanged',
     changeType: 'unchanged',
   };
-  return <div className="change-view"><ChangeObject obj={obj} isOpen={true}/></div>;
+  return <LeftRightContext.Provider value={{ left: before, right: after }}>
+    <div className="change-view"><ChangeObject obj={obj} isOpen={true}/></div>
+  </LeftRightContext.Provider>;
   //const html = jsondiffpatch.formatters.html.format(delta as Delta, before);
   //return <div className="change-view" dangerouslySetInnerHTML={{__html: html}} />
 }

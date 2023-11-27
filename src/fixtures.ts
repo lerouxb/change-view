@@ -237,6 +237,14 @@ export const fixtures: Fixture[] = [
     name: 'remove array from array',
     before: { foo: [[1], [2]] },
     after: { foo: [[1]] },
+  }, {
+    name: 'type change',
+    before: { foo: new Double(1.2) },
+    after: { foo: new Int32(1) }
+  }, {
+    name: 'add field',
+    before: { foo: 'a' },
+    after: { foo: 'a', bar: 'b'}
   }
 ];
 
