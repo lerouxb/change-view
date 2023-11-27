@@ -15,6 +15,10 @@ const diffpatcher = jsondiffpatch.create({
   },
   textDiff: {
     minLength: Infinity // don't do a text diff on bson values
+  },
+  objectHash: function (obj: any) {
+    // probably not the most efficient, but gets the job done
+    return stringify(obj);
   }
 });
 

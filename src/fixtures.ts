@@ -245,6 +245,14 @@ export const fixtures: Fixture[] = [
     name: 'add field',
     before: { foo: 'a' },
     after: { foo: 'a', bar: 'b'}
+  }, {
+    name: 'add number next to object in array',
+    before: { foo: [{ bar: 'baz' }]},
+    after: { foo: [0, { bar: 'baz' }]},
+  }, {
+    name: 'remove number next to object in array',
+    before: { foo: [0, { bar: 'baz' }]},
+    after: { foo: [{ bar: 'baz' }]},
   }
 ];
 
