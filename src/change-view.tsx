@@ -364,7 +364,7 @@ function ChangeArrayItemArray({
 }: {
   item: ItemWithChange,
 }) {
-  const [isOpen, setIsOpen] = useState(!!item.delta);
+  const [isOpen, setIsOpen] = useState(!!item.delta || item.changeType !== 'unchanged');
 
   const toggleIsOpen = function () {
     setIsOpen(!isOpen);
@@ -391,7 +391,7 @@ function ChangeArrayItemObject({
   item: ItemWithChange,
 }) {
 
-  const [isOpen, setIsOpen] = useState(!!item.delta);
+  const [isOpen, setIsOpen] = useState(!!item.delta || item.changeType !== 'unchanged');
 
   const toggleIsOpen = function () {
     setIsOpen(!isOpen);
@@ -508,7 +508,7 @@ function ChangeObjectPropertyObject({
 }: {
   property: PropertyWithChange
 }) {
-  const [isOpen, setIsOpen] = useState(!!property.delta);
+  const [isOpen, setIsOpen] = useState(!!property.delta || property.changeType !== 'unchanged');
 
   const toggleIsOpen = function () {
     setIsOpen(!isOpen);
@@ -534,7 +534,7 @@ function ChangeObjectPropertyArray({
 }: {
   property: PropertyWithChange
 }) {
-  const [isOpen, setIsOpen] = useState(!!property.delta);
+  const [isOpen, setIsOpen] = useState(!!property.delta || property.changeType !== 'unchanged');
 
   const toggleIsOpen = function () {
     setIsOpen(!isOpen);
