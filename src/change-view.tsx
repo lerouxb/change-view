@@ -1,3 +1,4 @@
+import _ from 'lodash';
 import React, { useState } from 'react';
 
 import type { Document } from 'bson';
@@ -11,7 +12,14 @@ import './change-view.css';
 const diffpatcher = jsondiffpatch.create({
   arrays: {
     detectMove: false
-  }
+  },
+  objectHash: function (obj: any) {
+    return stringify(obj);
+  },
+  textDiff: {
+    minLength: Infinity
+  },
+  cloneDiffValues: true
 });
 
 type ObjectPath = (string | number)[];
@@ -21,6 +29,10 @@ function isSimpleObject(value: any) {
 }
 
 function stringify(value: any) {
+  if (typeof value === 'string') {
+    return value;
+  }
+
   if (value?.inspect) {
     // TODO: this is a hack - we'd use our existing formatters
     const s = value.inspect();
@@ -80,6 +92,27 @@ function assert(bool: boolean, message: string) {
     throw new Error(message);
   }
 }
+
+/*
+function deBSON(properties: PropertyWithChange[], key: string, change: any) {
+  if (Array.isArray(change)) {
+    // only non-bson add/update involved
+    return change;
+  }
+
+  const existingProperty = properties.find((p) => p.objectKey === key);
+  if (existingProperty && existingProperty.oldValue._bsontype) {
+    if (key === 'binData') {
+      console.log(key, existingProperty.oldValue, change);
+    }
+    const newValue = _.clone(existingProperty.oldValue);
+    jsondiffpatch.patch(newValue, change);
+    return [existingProperty.oldValue, newValue];
+  }
+
+  return change;
+}
+*/
 
 function propertiesWithChanges({
   path,
@@ -484,10 +517,13 @@ function ChangeArray({
       }
 
       return (<div className="change-array-inline-wrap"><div className={classes.join(' ')}>[
-        {items.map((item, index) => (<>
-          <ChangeLeaf obj={item} />
-          {index !== items.length -1 && <Sep />}
-        </>))}
+        {items.map((item, index) => {
+          const key = pathToKey(item.path, item.changeType);
+          return <span key={key}>
+            <ChangeLeaf obj={item} />
+            {index !== items.length -1 && <Sep/>}
+          </span>
+        })}
       ]</div></div>)
     }
 
@@ -670,22 +706,19 @@ function ChangeLeaf({
   </div>;
 }
 
-function AnyChange({
-  obj,
-  isOpen = false
-}: {
-  obj: ObjectWithChange,
-  isOpen?: boolean
-}) {
-  const value = obj.changeType === 'added' ? obj.newValue : obj.oldValue;
-
+function unBSON(value: any | any[]): any | any[] {
   if (Array.isArray(value)) {
-    return <ChangeArray obj={obj} isOpen={isOpen} />
+    return value.map(unBSON);
   } else if (isSimpleObject(value)) {
-    return <ChangeObject obj={obj} isOpen={isOpen} />
+    const mapped: Record<string, any|any[]> = {};
+    for (const [k, v] of Object.entries(value)) {
+      mapped[k] = unBSON(v);
+    }
+    return mapped;
+  } else if (value?._bsontype) {
+    return stringify(value);
   } else {
-    // simple value or BSON value
-    return <ChangeLeaf obj={obj} />
+    return value;
   }
 }
 
@@ -698,7 +731,10 @@ export function ChangeView({
   before: Document,
   after: Document
 }) {
-  const delta = diffpatcher.diff(before, after) ?? null;
+  const left = unBSON(before);
+  const right = unBSON(after);
+  const delta = diffpatcher.diff(left, right) ?? null;
+  console.log(delta);
   const obj: ObjectWithChange = {
     path: [name],
     oldValue: before,
@@ -706,7 +742,7 @@ export function ChangeView({
     implicitChangeType: 'unchanged',
     changeType: 'unchanged',
   };
-  return <div className="change-view"><AnyChange obj={obj} isOpen={true}/></div>;
+  return <div className="change-view"><ChangeObject obj={obj} isOpen={true}/></div>;
   //const html = jsondiffpatch.formatters.html.format(delta as Delta, before);
   //return <div className="change-view" dangerouslySetInnerHTML={{__html: html}} />
 }
