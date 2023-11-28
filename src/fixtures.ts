@@ -377,6 +377,10 @@ export const fixtures: Fixture[] = [
     before: { foo: 'a' },
     after: { foo: 'a', bar: 'b'}
   }, {
+    name: 'remove field',
+    before: { foo: 'a', bar: 'b'},
+    after: { foo: 'a' },
+  }, {
     name: 'add number next to object in array',
     before: { foo: [{ bar: 'baz' }]},
     after: { foo: [0, { bar: 'baz' }]},
@@ -384,6 +388,10 @@ export const fixtures: Fixture[] = [
     name: 'remove number next to object in array',
     before: { foo: [0, { bar: 'baz' }]},
     after: { foo: [{ bar: 'baz' }]},
+  }, {
+    name: 'object inside array changed',
+    before: { foo: [0, { bar: 'baz' }]},
+    after: { foo: [0, { bar: 'bazz' }]},
   }, {
     name: 'airbnb',
     before: airbnb,

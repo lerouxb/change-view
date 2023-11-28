@@ -11,13 +11,22 @@ import './change-view.css';
 
 const diffpatcher = jsondiffpatch.create({
   arrays: {
+    // Array moves are really complicated to visualise both technically and also
+    // usability-wise. (see jsondiffpatch's demo). With this set to false array
+    // changes will be separate removes and adds.
     detectMove: false
   },
   textDiff: {
+    // TODO: technically this doesn't matter anymore now that we look up the
+    // value out of before/after docs, but there are nicer ways to diff larger
+    // blocks of text. Although we probably won't bother with diffing text
+    // fields for our use case.
     minLength: Infinity // don't do a text diff on bson values
   },
   objectHash: function (obj: any) {
-    // probably not the most efficient, but gets the job done
+    // Probably not the most efficient, but gets the job done. This is used by
+    // jsondiffpatch when diffing arrays that contain objects to be able to
+    // determine which objects in the left and right docs are the same ones.
     return stringify(obj);
   }
 });
@@ -34,7 +43,8 @@ type ChangeType = 'unchanged'|'changed'|'added'|'removed';
 type ObjectWithChange = {
   implicitChangeType: ChangeType;
   changeType: ChangeType;
-  // TODO: use left and right Branch rahter than leftPath, leftValue, rightPath, rightValue
+  // TODO: use left and right Branch rather than leftPath, leftValue, rightPath,
+  // rightValue. ie. rather use the type system than fight it..
   leftPath?: ObjectPath;
   leftValue?: any | any[];
   rightPath?: ObjectPath;
@@ -79,7 +89,10 @@ function isSimpleObject(value: any) {
 
 function stringify(value: any) {
   if (value?.inspect) {
-    // TODO: this is a hack - we'd use our existing formatters
+    // TODO: This is a temporary hack - we'd use our existing formatters to
+    // output colourful/rich previews of values, not just plain text and we
+    // don't need this behaviour in unBSON() anyway - it doesn't matter that
+    // jsondiffpatch sees `new ` when diffing.
     const s = value.inspect();
     if (s.startsWith('new ')) {
       return s.slice(4);
@@ -92,26 +105,21 @@ function stringify(value: any) {
   return EJSON.stringify(value)
 }
 
-function pathToKey(path: ObjectPath, changeType: ChangeType) {
-  const parts: string[] = [];
-  for (const part of path) {
-    if (typeof part === 'string') {
-      // not actually sure about escaping here. only really matters if we ever
-      // want to parse this again which is unlikely
-      parts.push(`["${part.replace(/"/g, '\\')}"]`);
-    }
-    else {
-      parts.push(`[${part}]`);
-    }
-  }
-  return parts.join('')+'_'+changeType;
-}
-
 // TODO: just use node's assert module
 function assert(bool: boolean, message: string) {
   if (!bool) {
     throw new Error(message);
   }
+}
+
+function getValueShape(value: any) {
+  if (Array.isArray(value)) {
+    return 'array';
+  }
+  if (isSimpleObject(value)) {
+    return 'object';
+  }
+  return 'leaf';
 }
 
 function propertiesWithChanges({
@@ -120,32 +128,35 @@ function propertiesWithChanges({
   delta,
   implicitChangeType
 }: BranchesWithChanges) {
-  // for unchanged, changed or removed objects we use the left value, otherwise
-  // we use the right value because that's the only one available
+  // For unchanged, changed or removed objects we use the left value, otherwise
+  // we use the right value because that's the only one available. ie. we
+  // descend down a branch of green added stuff and render that even though
+  // there's no "left/before" data matching it. For red removed branches we
+  // still use the left/before data.
   const value = implicitChangeType === 'added' ? right.value : left.value;
 
   const properties: PropertyWithChange[] = Object.entries(value).map(([objectKey, leftValue]) => {
-    const leftPath = left ? [...left.path as ObjectPath, objectKey]
-      : right ? undefined
-      : [objectKey];
-
-    const rightPath = right ? [...right.path as ObjectPath, objectKey]
-      : left ? undefined
-      : [objectKey];
+    // For both of these: if there is a left/right path we use that. Otherwise
+    // we're in an added/removed branch so there is no corresponding left/right
+    // path. (So you can have left or right or both)
+    const leftPath = left ? [...left.path as ObjectPath, objectKey] : undefined;
+    const rightPath = right ? [...right.path as ObjectPath, objectKey] : undefined;
 
     const property: PropertyWithChange = {
       implicitChangeType,
-      // might change changeType to 'changed' or 'removed' below
+      // Start off assuming the value is unchanged, then we might change
+      // changeType to 'changed' or 'removed' below.
       changeType: 'unchanged',
       objectKey,
-      leftValue: leftPath ? leftValue : undefined,
-      // we'll fill in rightValue below if the value was added. This is just
-      // handling the case where it didn't change.
-      rightValue: rightPath && right ? right.value[objectKey] : undefined,
       leftPath,
-      // we'll remove rightPath below if the value was removed
+      leftValue: leftPath ? leftValue : undefined,
+      // For rightPath and rightValue this is just the case where the value was
+      // unchanged. changed, added and removed get handled below, overriding
+      // these values.
       rightPath,
-      // we'll fill in delta below if this is an unchanged object with changes somewhere inside it
+      rightValue: rightPath ? right.value[objectKey] : undefined,
+      // We'll fill in delta below if this is an unchanged object with changes
+      // somewhere inside it.
       // ie. { foo: {} } => foo: { bar: 'baz' }. foo's value is "unchanged"
       // itself, but it has a delta because bar inside it changed.
       delta: null
@@ -179,7 +190,10 @@ function propertiesWithChanges({
           // update
           const existingProperty = properties.find((p) => p.objectKey === key);
           if (existingProperty) {
-            existingProperty.rightValue = change[1]; // 0 is the old value
+            // This assignment might be pointless because we already initialised
+            // the property with the right value above, but just keep it for
+            // completeness' sake.
+            existingProperty.rightValue = change[1]; // 0 is the old (left) value
             existingProperty.changeType = 'changed';
           } else {
             assert(false, `property with key "${key} does not exist"`);
@@ -199,7 +213,8 @@ function propertiesWithChanges({
         }
       } else {
         assert(isSimpleObject(change), 'change should be a simple object');
-        // unchanged, so we pass the delta along
+        // unchanged, so we pass the delta along as there are changes deeper in
+        // the branch
         const existingProperty = properties.find((p) => p.objectKey === key);
         if (existingProperty) {
           existingProperty.delta = change;
@@ -210,7 +225,9 @@ function propertiesWithChanges({
     }
   }
 
-  // turn changes where the type changed into remove followed by add because we can't easily visualise it on one line
+  // Turn changes where the "shape" (ie. array, object or leaf) changed into
+  // remove followed by add because we can't easily visualise it on one line
+  // TODO: we might be able to roll this in above and not need a separate pass
   let changed = true;
   while (changed) {
     changed = false;
@@ -248,39 +265,27 @@ function propertiesWithChanges({
     }
   }
 
+  // TODO: this is temporary and should be in tests plus proper usage of types,
+  // not at runtime.
   for (const property of properties) {
     if (property.leftPath && property.leftValue === undefined) {
-      console.log(property);
       assert(false, 'property: leftPath, but no leftValue')
     }
 
     if (property.rightPath && property.rightValue === undefined) {
-      console.log(property, property.rightPath, property.rightValue);
       assert(false, 'property: rightPath, but no rightValue')
     }
 
     if (property.leftValue !== undefined && !property.leftPath) {
-      console.log(property);
       assert(false, 'property: leftValue, but no leftPath')
     }
 
     if (property.rightValue !== undefined && !property.rightPath) {
-      console.log(property);
       assert(false, 'property: rightValue, but no rightPath')
     }
   }
 
   return properties;
-}
-
-function getValueShape(value: any) {
-  if (Array.isArray(value)) {
-    return 'array';
-  }
-  if (isSimpleObject(value)) {
-    return 'object';
-  }
-  return 'leaf';
 }
 
 function itemsWithChanges({
@@ -289,18 +294,13 @@ function itemsWithChanges({
   delta,
   implicitChangeType
 }: BranchesWithChanges) {
-  // for unchanged, changed or removed objects we use the left value, otherwise
-  // we use the right value because that's the only one available
+  // Same reasoning here as for propertiesWithChanges
   const value = (implicitChangeType === 'added' ? right.value : left.value) as any[];
 
   const items: ItemWithChange[] = value.map((leftValue, index) => {
-    const leftPath = left ? [...left.path as ObjectPath, index]
-      : right ? undefined
-      : [index];
-
-    const rightPath = right ? [...right.path as ObjectPath, index]
-      : left ? undefined
-      : [index];
+    // Same thing here as for propertiesWithChanges
+    const leftPath = left ? [...left.path as ObjectPath, index] : undefined;
+    const rightPath = right ? [...right.path as ObjectPath, index] : undefined;
 
     const item: ItemWithChange = {
       implicitChangeType,
@@ -308,29 +308,35 @@ function itemsWithChanges({
       // 'changed'. Only unchanged, added or removed.
       changeType: 'unchanged',
       index,
-      leftValue: leftPath ? leftValue : undefined,
-      rightValue: rightPath ? leftValue : undefined, // assume it is unchanged
-      // we'll fill in rightValue below if the value was added
       leftPath,
-      // This only handles the case where the value is unchanged. we'll remove
-      // rightPath below if the value was removed. we don't have arrays that
-      // have changed values. only unchanged, added or removed.
+      leftValue: leftPath ? leftValue : undefined,
+      // same as for propertiesWithChanges we start by assuming the value is
+      // unchanged and then we might remove rightPath and rightValue again below
       rightPath,
-      // we'll fill in delta below if this is an unchanged array with changes somewhere inside it
-      // ie. { foo: [] } => { foo: [1] }. foo's value is "unchanged" itself, but
-      // it has a delta because 1 is added inside it
+      rightValue: rightPath ? leftValue : undefined,
+      // Array changes don't work like object changes where it is possible for a
+      // property to have changes that are deeper down. All changes are adds or
+      // removes, so no delta to pass down to lower levels.
       delta: null
     };
     return item;
   });
 
   if (delta) {
+    /*
+    delta = {
+      _t: 'a',
+      index1: innerDelta1,
+      index2: innerDelta2,
+      index5: innerDelta5,
+    };
+    */
     assert(delta._t === 'a', 'delta._t is not a');
     const toRemove = Object.keys(delta)
       .filter((key) => key.startsWith('_') && key !== '_t')
       .map((key) => key.slice(1) as unknown as number);
 
-    // removed indexes refer to the original (left) which is why we remove in a
+    // Removed indexes refer to the original (left) which is why we remove in a
     // separate pass before updating/adding
     for (const index of toRemove) {
       // removed
@@ -358,78 +364,33 @@ function itemsWithChanges({
         continue;
       }
       else {
-        // non-removed indexes refer to the final (right) array which is why we
+        // Non-removed indexes refer to the final (right) array which is why we
         // update/add in a separate pass after removing
 
         const index = _index as unknown as number;
-        if (Array.isArray(change)) {
-          assert(change.length !== 3, 'array moves are not supported');
-          assert(change.length !== 2, 'array changes are not supported'); // always add and remove
+        assert(Array.isArray(change), 'unexpected non-array');
+        assert(change.length !== 3, 'array moves are not supported');
+        assert(change.length !== 2, 'array changes are not supported'); // always add and remove
 
-          // added
+        // added
 
-          // adjust the indexes of all items after this one
-          for (const item of items) {
-            if (item.index >= index && item.changeType !== 'removed') {
-              item.index = item.index + 1;
-            }
+        // adjust the indexes of all items after this one
+        for (const item of items) {
+          if (item.index >= index && item.changeType !== 'removed') {
+            item.index = item.index + 1;
           }
-
-          items.splice(index, 0, {
-            implicitChangeType,
-            changeType: 'added',
-            index,
-            // NOTE: no leftValue or leftPath
-            rightPath: [...(right ?? left).path, index],
-            rightValue: change[0],
-            delta: null,
-          });
-
         }
-        else {
-          // for nested arrays we fill the delta
-          items[index].delta = change;
-        }
+
+        items.splice(index, 0, {
+          implicitChangeType,
+          changeType: 'added',
+          index,
+          // NOTE: no leftValue or leftPath
+          rightPath: [...(right ?? left).path, index],
+          rightValue: change[0],
+          delta: null,
+        });
       }
-    }
-  }
-
-  // turn changes where the type changed into remove followed by add because we can't easily visualise it on one line
-  // TODO: is this even possible? Just said there is no "changed" in arrays above..
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const index = items.findIndex((item) => {
-      if (item.changeType === 'changed') {
-        const beforeType = getValueShape(item.leftValue);
-        const afterType = getValueShape(item.rightValue);
-        if (beforeType !== afterType) {
-          return true;
-        }
-      }
-      return false;
-    });
-    if (index !== -1) {
-      const property = items[index];
-      changed = true;
-      const deleteItem: ItemWithChange = {
-        implicitChangeType,
-        changeType: 'removed',
-        index: property.index,
-        leftPath: property.leftPath,
-        leftValue: property.leftValue,
-        delta: null
-      };
-
-      const addItem: ItemWithChange = {
-        implicitChangeType,
-        changeType: 'added',
-        index: property.index,
-        rightPath: property.leftPath,
-        rightValue: property.rightValue,
-        delta: null
-      };
-      items.splice(index, 1, deleteItem, addItem);
     }
   }
 
@@ -458,6 +419,23 @@ function itemsWithChanges({
   return items;
 }
 
+function getObjectKey(obj: ObjectWithChange) {
+  const path = (obj.rightPath ?? obj.leftPath) as ObjectPath;
+
+  const parts: string[] = [];
+  for (const part of path) {
+    if (typeof part === 'string') {
+      // not actually sure about escaping here. only really matters if we ever
+      // want to parse this again which is unlikely
+      parts.push(`["${part.replace(/"/g, '\\')}"]`);
+    }
+    else {
+      parts.push(`[${part}]`);
+    }
+  }
+  return parts.join('')+'_'+obj.changeType;
+}
+
 function ChangeArrayItemArray({
   item,
 }: {
@@ -469,9 +447,6 @@ function ChangeArrayItemArray({
     setIsOpen(!isOpen);
   };
 
-  //const value = item.changeType === 'added' ? item.rightValue : item.leftValue;
-  //const numItems = value.length;
-  //const text = `Array (${numItems})`;
   const text = 'Array';
 
   return (<div className="change-array-item change-array-item-array">
@@ -496,9 +471,6 @@ function ChangeArrayItemObject({
     setIsOpen(!isOpen);
   };
 
-  //const value = item.changeType === 'added' ? item.rightValue : item.leftValue;
-  //const numKeys = Object.keys(value).length;
-  //const text = `Object (${numKeys})`;
   const text = 'Object';
 
   return (<div className="change-array-item change-array-item-object">
@@ -547,10 +519,6 @@ function Sep() {
   return <span className="separator">, </span>;
 }
 
-function getPath(obj: ObjectWithChange) {
-  return (obj.rightPath ?? obj.leftPath) as ObjectPath;
-}
-
 function ChangeArray({
   obj,
   isOpen
@@ -579,9 +547,9 @@ function ChangeArray({
 
     // TODO: we might want to go further and only do this for simple values like
     // strings, numbers, booleans, nulls, etc. ie. not bson types because some
-    // of those might  take up a lot of space?
+    // of those might take up a lot of space?
     if (items.every((item) => getValueShape(item.changeType === 'added' ? item.rightValue : item.leftValue) === 'leaf')) {
-      // if it is an array containing just simple values then we can special-case it and output it all on one line
+      // if it is an array containing just leaf values then we can special-case it and output it all on one line
       const classes = ['change-array-inline'];
 
       if (implicitChangeType === 'added') {
@@ -592,10 +560,9 @@ function ChangeArray({
         classes.push('change-array-inline-removed');
       }
 
-
       return (<div className="change-array-inline-wrap"><div className={classes.join(' ')}>[
         {items.map((item, index) => {
-          const key = pathToKey(getPath(item), item.changeType);
+          const key = getObjectKey(item);
           return <div className="change-array-inline-element" key={key}>
             <ChangeLeaf obj={item} />
             {index !== items.length -1 && <Sep/>}
@@ -606,7 +573,7 @@ function ChangeArray({
 
     return (<div className="change-array">
       {items.map((item) => {
-        const key = pathToKey(getPath(item), item.changeType);
+        const key = getObjectKey(item);
         return <ChangeArrayItem key={key} item={item}/>
       })}
     </div>);
@@ -626,9 +593,6 @@ function ChangeObjectPropertyObject({
     setIsOpen(!isOpen);
   };
 
-  //const value = property.changeType === 'added' ? property.rightValue : property.leftValue;
-  //const numKeys = Object.keys(value).length;
-  //const text = `Object (${numKeys})`;
   const text = 'Object';
 
   return (<div className="change-object-property change-object-property-object">
@@ -652,9 +616,6 @@ function ChangeObjectPropertyArray({
     setIsOpen(!isOpen);
   };
 
-  //const value = property.changeType === 'added' ? property.rightValue : property.leftValue;
-  //const numItems = value.length;
-  //const text = `Array (${numItems})`;
   const text = 'Array';
 
   return (<div className="change-object-property change-object-property-array">
@@ -722,7 +683,7 @@ function ChangeObject({
   if (isOpen) {
     return (<div className="change-object">
       {properties.map((property) => {
-        const key = pathToKey(getPath(property), property.changeType);
+        const key = getObjectKey(property);
         return <ChangeObjectProperty key={key} property={property} />
       })}
     </div>);
@@ -732,7 +693,8 @@ function ChangeObject({
 }
 
 function getLeftClassName(obj: ObjectWithChange) {
-  // TODO: this is a complete mess and has to be rewritten
+  // TODO: This is a complete mess and has to be rewritten. The styling should
+  // should all use emotion anyway.
 
   if (obj.implicitChangeType === 'removed') {
     return 'change-removed';
@@ -762,6 +724,10 @@ function getRightClassName(obj: ObjectWithChange) {
 }
 
 function getChangeType(obj: ObjectWithChange) {
+  // TODO: I can't remember why I made it possible for obj.changeType to be
+  // different from obj.implicitChangeType. Once a branch is added then
+  // everything below that is also added, right? Might have been some styling
+  // aid..
   if (['added', 'removed'].includes(obj.implicitChangeType)) {
     // these are "sticky" as we descend
     return obj.implicitChangeType;
@@ -789,20 +755,27 @@ function ChangeLeaf({
   const { left, right } = useContext(LeftRightContext) as LeftRightContextType;
 
   const toString = (path: ObjectPath, value: any) => {
+    // Just prove that we can look up the value in the left/right data by path
+    // and then display that rather than the un-BSON'd value we used when
+    // diffing. Then stringify it for now anyway ;)
     const v = lookupValue(path, value);
     return stringify(v);
   };
 
   const changeType = getChangeType(obj);
+  // We could be showing the left value (unchanged, removed), right value
+  // (added) or both (changed). Furthermore the left one could have no colour or
+  // it could be red and the right one is always green.
   const includeLeft = ['unchanged', 'changed', 'removed'].includes(changeType);
+  const includeRight = ['changed', 'added'].includes(changeType);
+
+  // TODO: This should be handled by proper typing, not runtime checks
   if (includeLeft) {
     if (!obj.leftPath) {
       console.log(`leftPath is required because changeType is ${changeType}`, obj);
     }
     assert(!!obj.leftPath, 'leftPath is required');
   }
-
-  const includeRight = ['changed', 'added'].includes(changeType);
   if (includeRight) {
     if (!obj.rightPath) {
       console.log(`rightPath is required because changeType is ${changeType}`, obj);
@@ -843,10 +816,16 @@ export function ChangeView({
   before: Document,
   after: Document
 }) {
+  // The idea here is to format BSON leaf values as text (shell syntax) so that
+  // jsondiffpatch can easily diff them. Because we calculate the left and right
+  // path for every value we can easily look up the BSON leaf value again and
+  // use that when displaying if we choose to.
   const left = unBSON(before);
   const right = unBSON(after);
+
   const delta = diffpatcher.diff(left, right) ?? null;
   console.log(delta);
+
   const obj: ObjectWithChange = {
     leftPath: [],
     leftValue: before,
@@ -856,9 +835,11 @@ export function ChangeView({
     implicitChangeType: 'unchanged',
     changeType: 'unchanged',
   };
+
+  // Keep the left and right values in context so that the ChangeLeaf component
+  // can easily find them again to lookup the original BSON values. Otherwise
+  // we'd have to pass references down through every component.
   return <LeftRightContext.Provider value={{ left: before, right: after }}>
-    <div className="change-view"><ChangeObject obj={obj} isOpen={true}/></div>
+    <div className="change-view" data-testid={`change-view-{${name}}`}><ChangeObject obj={obj} isOpen={true}/></div>
   </LeftRightContext.Provider>;
-  //const html = jsondiffpatch.formatters.html.format(delta as Delta, before);
-  //return <div className="change-view" dangerouslySetInnerHTML={{__html: html}} />
 }
