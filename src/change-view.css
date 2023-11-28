@@ -34,13 +34,8 @@ button {
 }
 
 .change-object-property-summary,
-.change-array-item-summary,
-.change-array-inline {
+.change-array-item-summary {
   display: inline-flex;
-}
-
-.separator {
-  margin-right: 4px;
 }
 
 .change-object-property > .change-object,
@@ -52,6 +47,12 @@ button {
 
 .change-array-inline {
   margin-left: 24px;
+  display: inline-block; /* so the green/red background colour doesn't stretch all the way to the end*/
+}
+
+.change-array-inline-element,
+.change-array-inline-element .change-value > * {
+  display: inline;
 }
 
 .change-object-property-leaf,

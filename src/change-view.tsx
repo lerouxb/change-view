@@ -24,6 +24,55 @@ const diffpatcher = jsondiffpatch.create({
 
 type ObjectPath = (string | number)[];
 
+type LeftRightContextType = {
+  left: any;
+  right: any;
+}
+
+type ChangeType = 'unchanged'|'changed'|'added'|'removed';
+
+type ObjectWithChange = {
+  implicitChangeType: ChangeType;
+  changeType: ChangeType;
+  // TODO: use left and right Branch rahter than leftPath, leftValue, rightPath, rightValue
+  leftPath?: ObjectPath;
+  leftValue?: any | any[];
+  rightPath?: ObjectPath;
+  rightValue?: any | any[];
+  delta: Delta | null;
+};
+
+type PropertyWithChange = ObjectWithChange & {
+  objectKey: string;
+};
+
+type ItemWithChange = ObjectWithChange & {
+  index: number;
+};
+
+type Branch = {
+  path: ObjectPath;
+  value: any | any[];
+};
+
+type BranchesWithChanges = {
+  delta: Delta | null, // delta is null for unchanged branches
+  implicitChangeType: ChangeType
+} & (
+  | { left: Branch, right: Branch } // changed | unchanged
+  | { left: never, right: Branch } // added
+  | { left: Branch, right: never } // removed
+);
+
+function getImplicitChangeType(obj: ObjectWithChange) {
+  if (['added', 'removed'].includes(obj.implicitChangeType)) {
+    // these are "sticky" as we descend
+    return obj.implicitChangeType;
+  }
+
+  return obj.changeType;
+}
+
 function isSimpleObject(value: any) {
   return Object.prototype.toString.call(value) === '[object Object]' && !value._bsontype;
 }
@@ -58,51 +107,12 @@ function pathToKey(path: ObjectPath, changeType: ChangeType) {
   return parts.join('')+'_'+changeType;
 }
 
-
-type ChangeType = 'unchanged'|'changed'|'added'|'removed';
-
-type ObjectWithChange = {
-  implicitChangeType: ChangeType;
-  changeType: ChangeType;
-  leftPath?: ObjectPath;
-  leftValue?: any | any[];
-  rightPath?: ObjectPath;
-  rightValue?: any | any[];
-  delta: Delta | null;
-};
-
-type PropertyWithChange = ObjectWithChange & {
-  objectKey: string;
-};
-
-function getImplicitChangeType(obj: ObjectWithChange) {
-  if (['added', 'removed'].includes(obj.implicitChangeType)) {
-    // these are "sticky" as we descend
-    return obj.implicitChangeType;
-  }
-
-  return obj.changeType;
-}
-
 function assert(bool: boolean, message: string) {
   if (!bool) {
     throw new Error(message);
   }
 }
 
-type Branch = {
-  path: ObjectPath;
-  value: any | any[];
-};
-
-type BranchesWithChanges = {
-  delta: Delta | null, // delta is null for unchanged branches
-  implicitChangeType: ChangeType
-} & (
-  | { left: Branch, right: Branch } // changed | unchanged
-  | { left: never, right: Branch } // added
-  | { left: Branch, right: never } // removed
-);
 
 function propertiesWithChanges({
   left,
@@ -272,10 +282,6 @@ function getType(value: any) {
   }
   return 'leaf';
 }
-
-type ItemWithChange = ObjectWithChange & {
-  index: number;
-};
 
 function itemsWithChanges({
   left,
@@ -590,10 +596,10 @@ function ChangeArray({
       return (<div className="change-array-inline-wrap"><div className={classes.join(' ')}>[
         {items.map((item, index) => {
           const key = pathToKey(getPath(item), item.changeType);
-          return <span key={key}>
+          return <div className="change-array-inline-element" key={key}>
             <ChangeLeaf obj={item} />
             {index !== items.length -1 && <Sep/>}
-          </span>
+          </div>
         })}
       ]</div></div>)
     }
@@ -824,11 +830,6 @@ function unBSON(value: any | any[]): any | any[] {
   } else {
     return value;
   }
-}
-
-type LeftRightContextType = {
-  left: any;
-  right: any;
 }
 
 const LeftRightContext = createContext<LeftRightContextType | null>(null);
