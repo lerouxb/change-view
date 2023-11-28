@@ -6,7 +6,6 @@ import { EJSON } from 'bson';
 import type { Delta } from 'jsondiffpatch';
 import jsondiffpatch from 'jsondiffpatch';
 
-import './jsondiffpatch.css';
 import './change-view.css';
 
 const diffpatcher = jsondiffpatch.create({
