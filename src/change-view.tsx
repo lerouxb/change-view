@@ -107,12 +107,12 @@ function pathToKey(path: ObjectPath, changeType: ChangeType) {
   return parts.join('')+'_'+changeType;
 }
 
+// TODO: just use node's assert module
 function assert(bool: boolean, message: string) {
   if (!bool) {
     throw new Error(message);
   }
 }
-
 
 function propertiesWithChanges({
   left,
@@ -216,8 +216,8 @@ function propertiesWithChanges({
     changed = false;
     const index = properties.findIndex((property) => {
       if (property.changeType === 'changed') {
-        const beforeType = getType(property.leftValue);
-        const afterType = getType(property.rightValue);
+        const beforeType = getValueShape(property.leftValue);
+        const afterType = getValueShape(property.rightValue);
         if (beforeType !== afterType) {
           return true;
         }
@@ -273,7 +273,7 @@ function propertiesWithChanges({
   return properties;
 }
 
-function getType(value: any) {
+function getValueShape(value: any) {
   if (Array.isArray(value)) {
     return 'array';
   }
@@ -401,8 +401,8 @@ function itemsWithChanges({
     changed = false;
     const index = items.findIndex((item) => {
       if (item.changeType === 'changed') {
-        const beforeType = getType(item.leftValue);
-        const afterType = getType(item.rightValue);
+        const beforeType = getValueShape(item.leftValue);
+        const afterType = getValueShape(item.rightValue);
         if (beforeType !== afterType) {
           return true;
         }
@@ -580,7 +580,7 @@ function ChangeArray({
     // TODO: we might want to go further and only do this for simple values like
     // strings, numbers, booleans, nulls, etc. ie. not bson types because some
     // of those might  take up a lot of space?
-    if (items.every((item) => getType(item.changeType === 'added' ? item.rightValue : item.leftValue) === 'leaf')) {
+    if (items.every((item) => getValueShape(item.changeType === 'added' ? item.rightValue : item.leftValue) === 'leaf')) {
       // if it is an array containing just simple values then we can special-case it and output it all on one line
       const classes = ['change-array-inline'];
 
