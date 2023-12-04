@@ -35,7 +35,7 @@ function getImplicitChangeType(obj: ObjectWithChange) {
 }
 
 function getObjectKey(obj: ObjectWithChange) {
-  const path = (obj.rightPath ?? obj.leftPath) as ObjectPath;
+  const path = (obj.right ?? obj.left).path;
 
   const parts: string[] = [];
   for (const part of path) {
@@ -118,7 +118,7 @@ function ChangeArrayItem({
 }: {
   item: ItemWithChange,
 }) {
-  const value = item.changeType === 'added' ? item.rightValue : item.leftValue;
+  const value = item.changeType === 'added' ? item.right.value : item.left.value;
   if (Array.isArray(value)) {
     // array summary followed by array items if expanded
     return <ChangeArrayItemArray item={item} />
@@ -144,14 +144,8 @@ function ChangeArray({
 }) {
   const implicitChangeType = getImplicitChangeType(obj);
   const items = itemsWithChanges({
-    left: obj.leftPath ? {
-      path: obj.leftPath as ObjectPath,
-      value: obj.leftValue as any | any[]
-    } as Branch : undefined,
-    right: obj.rightPath ? {
-      path: obj.rightPath as ObjectPath,
-      value: obj.rightValue as any | any[]
-    } as Branch : undefined,
+    left: obj.left ?? undefined,
+    right: obj.right ?? undefined,
     delta: obj.delta,
     implicitChangeType
   } as BranchesWithChanges);
@@ -164,7 +158,7 @@ function ChangeArray({
     // TODO: we might want to go further and only do this for simple values like
     // strings, numbers, booleans, nulls, etc. ie. not bson types because some
     // of those might take up a lot of space?
-    if (items.every((item) => getValueShape(item.changeType === 'added' ? item.rightValue : item.leftValue) === 'leaf')) {
+    if (items.every((item) => getValueShape(item.changeType === 'added' ? item.right.value : item.left.value) === 'leaf')) {
       // if it is an array containing just leaf values then we can special-case it and output it all on one line
       const classes = ['change-array-inline'];
 
@@ -262,7 +256,7 @@ function ChangeObjectProperty({
 }: {
   property: PropertyWithChange
 }) {
-  const value = property.changeType === 'added' ? property.rightValue : property.leftValue;
+  const value = property.changeType === 'added' ? property.right.value : property.left.value;
   if (Array.isArray(value)) {
     // array summary followed by array items if expanded
     return <ChangeObjectPropertyArray property={property}/>
@@ -285,14 +279,8 @@ function ChangeObject({
   // A sample object / sub-document. ie. not an array and not a leaf.
   const implicitChangeType = getImplicitChangeType(obj);
   const properties = propertiesWithChanges({
-    left: obj.leftPath ? {
-      path: obj.leftPath as ObjectPath,
-      value: obj.leftValue as any | any[]
-    } as Branch : undefined,
-    right: obj.rightPath ? {
-      path: obj.rightPath as ObjectPath,
-      value: obj.rightValue as any | any[]
-    } as Branch : undefined,
+    left: obj.left ?? undefined,
+    right: obj.right ?? undefined,
     delta: obj.delta,
     implicitChangeType
   } as BranchesWithChanges);
@@ -310,7 +298,7 @@ function ChangeObject({
 
 function getLeftClassName(obj: ObjectWithChange) {
   // TODO: This is a complete mess and has to be rewritten. The styling should
-  // should all use emotion anyway.
+  // all use emotion anyway.
 
   if (obj.implicitChangeType === 'removed') {
     return 'change-removed';
@@ -385,23 +373,9 @@ function ChangeLeaf({
   const includeLeft = ['unchanged', 'changed', 'removed'].includes(changeType);
   const includeRight = ['changed', 'added'].includes(changeType);
 
-  // TODO: This should be handled by proper typing, not runtime checks
-  if (includeLeft) {
-    if (!obj.leftPath) {
-      console.log(`leftPath is required because changeType is ${changeType}`, obj);
-      throw new Error('leftPath is required');
-    }
-  }
-  if (includeRight) {
-    if (!obj.rightPath) {
-      console.log(`rightPath is required because changeType is ${changeType}`, obj);
-      throw new Error('rightPath is required');
-    }
-  }
-
   return <div className="change-value">
-    {includeLeft && <div className={getLeftClassName(obj)}>{toString(obj.leftPath as ObjectPath, left)}</div>}
-    {includeRight && <div className={getRightClassName(obj)}>{toString(obj.rightPath as ObjectPath, right)}</div>}
+    {includeLeft && <div className={getLeftClassName(obj)}>{toString((obj.left as Branch).path as ObjectPath, left)}</div>}
+    {includeRight && <div className={getRightClassName(obj)}>{toString((obj.right as Branch).path as ObjectPath, right)}</div>}
   </div>;
 }
 
@@ -427,10 +401,14 @@ export function ChangeView({
   console.log(delta);
 
   const obj: ObjectWithChange = {
-    leftPath: [],
-    leftValue: before,
-    rightPath: [],
-    rightValue: after,
+    left: {
+      path: [],
+      value: before
+    },
+    right: {
+      path: [],
+      value: after
+    },
     delta,
     implicitChangeType: 'unchanged',
     changeType: 'unchanged',

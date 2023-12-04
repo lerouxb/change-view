@@ -32,15 +32,12 @@ type ChangeType = 'unchanged'|'changed'|'added'|'removed';
 
 export type ObjectWithChange = {
   implicitChangeType: ChangeType;
-  changeType: ChangeType;
-  // TODO: use left and right Branch rather than leftPath, leftValue, rightPath,
-  // rightValue. ie. rather use the type system than fight it..
-  leftPath?: ObjectPath;
-  leftValue?: any | any[];
-  rightPath?: ObjectPath;
-  rightValue?: any | any[];
   delta: Delta | null;
-};
+} & (
+  | { left: Branch, right: Branch, changeType: 'changed'|'unchanged' }
+  | { left?: never, right: Branch, changeType: 'added' }
+  | { left: Branch, right?: never, changeType: 'removed' }
+);
 
 export type PropertyWithChange = ObjectWithChange & {
   objectKey: string;
@@ -60,8 +57,8 @@ export type BranchesWithChanges = {
   implicitChangeType: ChangeType
 } & (
   | { left: Branch, right: Branch } // changed | unchanged
-  | { left: never, right: Branch } // added
-  | { left: Branch, right: never } // removed
+  | { left?: never, right: Branch } // added
+  | { left: Branch, right?: never } // removed
 );
 
 // TODO: just use node's assert module
@@ -83,35 +80,56 @@ export function propertiesWithChanges({
   // descend down a branch of green added stuff and render that even though
   // there's no "left/before" data matching it. For red removed branches we
   // still use the left/before data.
-  const value = implicitChangeType === 'added' ? right.value : left.value;
+  const value = implicitChangeType === 'added' ? (right as Branch).value : (left as Branch).value;
 
-  const properties: PropertyWithChange[] = Object.entries(value).map(([objectKey, leftValue]) => {
-    // For both of these: if there is a left/right path we use that. Otherwise
-    // we're in an added/removed branch so there is no corresponding left/right
-    // path. (So you can have left or right or both)
-    const leftPath = left ? [...left.path as ObjectPath, objectKey] : undefined;
-    const rightPath = right ? [...right.path as ObjectPath, objectKey] : undefined;
-
-    const property: PropertyWithChange = {
+  const properties: PropertyWithChange[] = Object.entries(value).map(([objectKey, leftValue]): PropertyWithChange => {
+    const prop: Omit<PropertyWithChange, 'left' | 'right' | 'changeType'>  ={
       implicitChangeType,
-      // Start off assuming the value is unchanged, then we might change
-      // changeType to 'changed' or 'removed' below.
-      changeType: 'unchanged',
       objectKey,
-      leftPath,
-      leftValue: leftPath ? leftValue : undefined,
-      // For rightPath and rightValue this is just the case where the value was
-      // unchanged. changed, added and removed get handled below, overriding
-      // these values.
-      rightPath,
-      rightValue: rightPath ? right.value[objectKey] : undefined,
       // We'll fill in delta below if this is an unchanged object with changes
       // somewhere inside it.
       // ie. { foo: {} } => foo: { bar: 'baz' }. foo's value is "unchanged"
       // itself, but it has a delta because bar inside it changed.
       delta: null
     };
-    return property;
+
+    // For both of these: if there is a left/right path we use that. Otherwise
+    // we're in an added/removed branch so there is no corresponding left/right
+    // path. (So you can have left or right or both)
+    const newLeft: Branch|undefined = left ? {
+      path: [...left.path, objectKey],
+      value: leftValue
+    } : undefined;
+
+    // This is just the case where the value was unchanged. changed, added and
+    // removed get handled below, overriding these values.
+    const newRight: Branch|undefined = right ? {
+      path: [...right.path, objectKey],
+      value: right.value[objectKey]
+    } : undefined;
+
+    if (newLeft && newRight) {
+      return {
+        ...prop,
+        changeType: 'unchanged', // might change to changed below
+        left: newLeft,
+        right: newRight
+      };
+    } else if (newLeft) {
+      return {
+        ...prop,
+        changeType: 'removed',
+        left: newLeft,
+      };
+    } else if (newRight) {
+      return {
+        ...prop,
+        changeType: 'added',
+        right: newRight
+      };
+    } else {
+      throw new Error('left or right required or both');
+    }
   });
 
   if (delta) {
@@ -132,10 +150,12 @@ export function propertiesWithChanges({
             changeType: 'added',
             objectKey: key,
             // NOTE: no leftValue or leftPath
-            rightValue: change[0],
-            rightPath: [...right.path, key],
+            right: {
+              path: [...(right as Branch).path, key], // right must exist because we're adding
+              value: change[0],
+            },
             delta: null
-          });
+          } as PropertyWithChange);
         } else if (change.length === 2) {
           // update
           const existingProperty = properties.find((p) => p.objectKey === key);
@@ -143,7 +163,8 @@ export function propertiesWithChanges({
             // This assignment might be pointless because we already initialised
             // the property with the right value above, but just keep it for
             // completeness' sake.
-            existingProperty.rightValue = change[1]; // 0 is the old (left) value
+            // 0 is the old (left) value, 1 is the new (right) value
+            (existingProperty.right as Branch).value = change[1]; // right must exist because this is a change
             existingProperty.changeType = 'changed';
           } else {
             assert(false, `property with key "${key} does not exist"`);
@@ -153,8 +174,7 @@ export function propertiesWithChanges({
           const existingProperty = properties.find((p) => p.objectKey === key);
           if (existingProperty) {
             existingProperty.changeType = 'removed';
-            delete existingProperty.rightValue;
-            delete existingProperty.rightPath;
+            delete existingProperty.right;
           } else {
             assert(false, `property with key "${key} does not exist"`);
           }
@@ -183,8 +203,8 @@ export function propertiesWithChanges({
     changed = false;
     const index = properties.findIndex((property) => {
       if (property.changeType === 'changed') {
-        const beforeType = getValueShape(property.leftValue);
-        const afterType = getValueShape(property.rightValue);
+        const beforeType = getValueShape(property.left.value);
+        const afterType = getValueShape(property.right.value);
         if (beforeType !== afterType) {
           return true;
         }
@@ -198,8 +218,7 @@ export function propertiesWithChanges({
         implicitChangeType,
         changeType: 'removed',
         objectKey: property.objectKey,
-        leftPath: property.leftPath,
-        leftValue: property.leftValue,
+        left: property.left as Branch,
         delta: null
       };
 
@@ -207,31 +226,14 @@ export function propertiesWithChanges({
         implicitChangeType,
         changeType: 'added',
         objectKey: property.objectKey,
-        rightPath: property.leftPath,
-        rightValue: property.rightValue,
+        right: {
+          // both exist because we just checked it above
+          path: (property.left as Branch).path,
+          value: (property.right as Branch).value
+        },
         delta: null
       };
       properties.splice(index, 1, deleteProperty, addProperty);
-    }
-  }
-
-  // TODO: this is temporary and should be in tests plus proper usage of types,
-  // not at runtime.
-  for (const property of properties) {
-    if (property.leftPath && property.leftValue === undefined) {
-      assert(false, 'property: leftPath, but no leftValue')
-    }
-
-    if (property.rightPath && property.rightValue === undefined) {
-      assert(false, 'property: rightPath, but no rightValue')
-    }
-
-    if (property.leftValue !== undefined && !property.leftPath) {
-      assert(false, 'property: leftValue, but no leftPath')
-    }
-
-    if (property.rightValue !== undefined && !property.rightPath) {
-      assert(false, 'property: rightValue, but no rightPath')
     }
   }
 
@@ -245,31 +247,57 @@ export function itemsWithChanges({
   implicitChangeType
 }: BranchesWithChanges) {
   // Same reasoning here as for propertiesWithChanges
-  const value = (implicitChangeType === 'added' ? right.value : left.value) as any[];
+  const value = (implicitChangeType === 'added' ? (right as Branch).value : (left as Branch).value) as any[];
 
-  const items: ItemWithChange[] = value.map((leftValue, index) => {
-    // Same thing here as for propertiesWithChanges
-    const leftPath = left ? [...left.path as ObjectPath, index] : undefined;
-    const rightPath = right ? [...right.path as ObjectPath, index] : undefined;
-
-    const item: ItemWithChange = {
+  const items: ItemWithChange[] = value.map((leftValue, index): ItemWithChange => {
+    const item: Omit<ItemWithChange, 'left' | 'right' | 'changeType'>  = {
       implicitChangeType,
-      // we might change changeType to 'removed' below. arrays don't have
-      // 'changed'. Only unchanged, added or removed.
-      changeType: 'unchanged',
       index,
-      leftPath,
-      leftValue: leftPath ? leftValue : undefined,
-      // same as for propertiesWithChanges we start by assuming the value is
-      // unchanged and then we might remove rightPath and rightValue again below
-      rightPath,
-      rightValue: rightPath ? leftValue : undefined,
       // Array changes don't work like object changes where it is possible for a
       // property to have changes that are deeper down. All changes are adds or
       // removes, so no delta to pass down to lower levels.
       delta: null
     };
-    return item;
+
+    // For both of these: if there is a left/right path we use that. Otherwise
+    // we're in an added/removed branch so there is no corresponding left/right
+    // path. (So you can have left or right or both)
+    const newLeft: Branch|undefined = left ? {
+      path: [...left.path, index],
+      value: leftValue
+    } : undefined;
+
+    // This is just the case where the value was unchanged. changed, added and
+    // removed get handled below, overriding these values.
+    const newRight: Branch|undefined = right ? {
+      path: [...right.path, index],
+      // assume the value is unchanged, fix below if it was removed. Arrays
+      // don't have changes.
+      value: left?.value
+    } : undefined;
+
+    if (newLeft && newRight) {
+      return {
+        ...item,
+        changeType: 'unchanged',
+        left: newLeft,
+        right: newRight
+      };
+    } else if (newLeft) {
+      return {
+        ...item,
+        changeType: 'removed',
+        left: newLeft,
+      };
+    } else if (newRight) {
+      return {
+        ...item,
+        changeType: 'added',
+        right: newRight
+      };
+    } else {
+      throw new Error('left or right required or both');
+    }
   });
 
   if (delta) {
@@ -292,9 +320,8 @@ export function itemsWithChanges({
       // removed
       const existingItem = items[index];
       if (existingItem) {
-        items[index].changeType = 'removed';
-        delete items[index].rightValue;
-        delete items[index].rightPath;
+        existingItem.changeType = 'removed';
+        delete existingItem.right;
       }
       else {
         assert(false, `item with index "${index}" does not exist`);
@@ -336,33 +363,14 @@ export function itemsWithChanges({
           changeType: 'added',
           index,
           // NOTE: no leftValue or leftPath
-          rightPath: [...(right ?? left).path, index],
-          rightValue: change[0],
+          right: {
+            //  TODO: make sure there's a unit test for both of these paths
+            path: [...(right ?? left).path, index],
+            value: change[0]
+          },
           delta: null,
         });
       }
-    }
-  }
-
-  for (const item of items) {
-    if (item.leftPath && item.leftValue === undefined) {
-      console.log(item);
-      assert(false, 'item: leftPath, but no leftValue')
-    }
-
-    if (item.rightPath && item.rightValue === undefined) {
-      console.log(item, item.rightPath, item.rightValue);
-      assert(false, 'item: rightPath, but no rightValue')
-    }
-
-    if (item.leftValue !== undefined && !item.leftPath) {
-      console.log(item);
-      assert(false, 'item: leftValue, but no leftPath')
-    }
-
-    if (item.rightValue !== undefined && !item.rightPath) {
-      console.log('moo', item);
-      assert(false, 'item: rightValue, but no rightPath')
     }
   }
 
