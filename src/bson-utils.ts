@@ -1,3 +1,4 @@
+import _ from 'lodash';
 import { EJSON } from 'bson';
 
 import { isSimpleObject } from './shape-utils';
@@ -34,4 +35,69 @@ export function unBSON(value: any | any[]): any | any[] {
   } else {
     return value;
   }
+}
+
+// TODO: this stuff is in hadron-type-checker which is not published. Switch
+// over to using that once moved into compass.
+
+const NUMBER_REGEX = /^-?\d+$/;
+const BSON_INT32_MAX = 0x7fffffff;
+const BSON_INT32_MIN = -0x80000000;
+class Int32Check {
+  test(string: string) {
+    if (NUMBER_REGEX.test(string)) {
+      var value = _.toNumber(string);
+      return value >= BSON_INT32_MIN && value <= BSON_INT32_MAX;
+    }
+    return false;
+  }
+}
+
+class Int64Check {
+  test(string: string) {
+    if (NUMBER_REGEX.test(string)) {
+      return Number.isSafeInteger(_.toNumber(string));
+    }
+    return false;
+  }
+}
+
+const INT32_CHECK = new Int32Check();
+const INT64_CHECK = new Int64Check();
+
+const numberToBsonType = (number: number) => {
+  var string = _.toString(number);
+  if (INT32_CHECK.test(string)) {
+    return 'Int32';
+  } else if (INT64_CHECK.test(string)) {
+    return 'Int64';
+  }
+  return 'Double';
+};
+
+const MATCH = /\[object (\w+)\]/;
+
+export function getType(object: any) {
+  if (_.hasIn(object, '_bsontype')) {
+    if (object._bsontype === 'Long') {
+      return 'Int64';
+    }
+    if (object._bsontype === 'ObjectID') {
+      return 'ObjectId';
+    }
+    if (object._bsontype === 'Symbol') {
+      return 'BSONSymbol';
+    }
+    return object._bsontype;
+  }
+  if (_.isNumber(object)) {
+    return numberToBsonType(object);
+  }
+  if (_.isPlainObject(object)) {
+    return 'Object';
+  }
+  if (_.isArray(object)) {
+    return 'Array';
+  }
+  return Object.prototype.toString.call(object).replace(MATCH, '$1');
 }
