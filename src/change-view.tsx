@@ -1,6 +1,8 @@
 import React, { useState, useContext, createContext } from 'react';
 
-import type { Document } from 'bson';
+import { BSONValue } from '@mongodb-js/compass-components';
+
+import { type Document } from 'bson';
 
 import {
   differ,
@@ -15,7 +17,7 @@ import type {
   Branch,
   BranchesWithChanges
 } from './unified-document';
-import { stringifyBSON, unBSON } from './bson-utils';
+import { stringifyBSON, unBSON, getType } from './bson-utils';
 import { isSimpleObject, getValueShape} from './shape-utils'
 
 import './change-view.css';
@@ -358,6 +360,7 @@ function ChangeLeaf({
   // bson values.
   const { left, right } = useContext(LeftRightContext) as LeftRightContextType;
 
+  /*
   const toString = (path: ObjectPath, value: any) => {
     // Just prove that we can look up the value in the left/right data by path
     // and then display that rather than the un-BSON'd value we used when
@@ -365,6 +368,7 @@ function ChangeLeaf({
     const v = lookupValue(path, value);
     return stringifyBSON(v);
   };
+  */
 
   const changeType = getChangeType(obj);
   // We could be showing the left value (unchanged, removed), right value
@@ -373,9 +377,15 @@ function ChangeLeaf({
   const includeLeft = ['unchanged', 'changed', 'removed'].includes(changeType);
   const includeRight = ['changed', 'added'].includes(changeType);
 
+  // {includeLeft && <div className={getLeftClassName(obj)}>{toString((obj.left as Branch).path as ObjectPath, left)}</div>}
+  // {includeRight && <div className={getRightClassName(obj)}>{toString((obj.right as Branch).path as ObjectPath, right)}</div>}
+
+  const leftValue = includeLeft ? lookupValue((obj.left as Branch).path, left) : undefined;
+  const rightValue = includeRight ? lookupValue((obj.right as Branch).path, right) : undefined;
+
   return <div className="change-value">
-    {includeLeft && <div className={getLeftClassName(obj)}>{toString((obj.left as Branch).path as ObjectPath, left)}</div>}
-    {includeRight && <div className={getRightClassName(obj)}>{toString((obj.right as Branch).path as ObjectPath, right)}</div>}
+    {leftValue && <div className={getLeftClassName(obj)}>{<BSONValue type={getType(leftValue)} value={leftValue} />}</div>}
+    {rightValue && <div className={getRightClassName(obj)}>{<BSONValue type={getType(rightValue)} value={rightValue} />}</div>}
   </div>;
 }
 
