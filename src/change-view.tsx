@@ -91,7 +91,6 @@ const changeSummaryStyles = css({
 
 function getChangeSummaryClass(obj: ObjectWithChange) {
   const changeType = getChangeType(obj);
-  console.log({changeType});
   if (changeType === 'unchanged' || changeType === 'changed') {
     return undefined;
   }
@@ -514,8 +513,8 @@ function ChangeLeaf({
   // TODO: BSONValue does not deal with `null`
   // TODO: BSONValue does not always show the bson type, so you can't spot bson type changes
   return <div className={changeValueStyles}>
-    {leftValue && <div className={getLeftClassName(obj)}>{<BSONValue type={getType(leftValue)} value={leftValue} />}</div>}
-    {rightValue && <div className={getRightClassName(obj)}>{<BSONValue type={getType(rightValue)} value={rightValue} />}</div>}
+    {includeLeft && <div className={getLeftClassName(obj)}>{<BSONValue type={getType(leftValue)} value={leftValue} />}</div>}
+    {includeRight && <div className={getRightClassName(obj)}>{<BSONValue type={getType(rightValue)} value={rightValue} />}</div>}
   </div>;
 }
 
