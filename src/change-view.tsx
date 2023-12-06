@@ -1,6 +1,6 @@
 import React, { useState, useContext, createContext } from 'react';
 
-import { BSONValue, Icon, css } from '@mongodb-js/compass-components';
+import { BSONValue, Icon, css, cx, palette, spacing, fontFamilies } from '@mongodb-js/compass-components';
 
 import { type Document } from 'bson';
 
@@ -20,8 +20,6 @@ import type {
 import { stringifyBSON, unBSON, getType } from './bson-utils';
 import { isSimpleObject, getValueShape} from './shape-utils'
 
-import './change-view.css';
-
 type LeftRightContextType = {
   left: any;
   right: any;
@@ -36,6 +34,15 @@ const expandButton = css({
     cursor: 'pointer',
   },
   display: 'flex',
+  alignSelf: 'center'
+});
+
+const addedStyles = css({
+  backgroundColor: palette.green.light1
+});
+
+const removedStyles = css({
+  backgroundColor: palette.red.light2
 });
 
 function getImplicitChangeType(obj: ObjectWithChange) {
@@ -64,6 +71,33 @@ function getObjectKey(obj: ObjectWithChange) {
   return parts.join('')+'_'+obj.changeType;
 }
 
+const changeArrayItemStyles = css({
+  display: 'flex',
+  flexDirection: 'column',
+  marginTop: '1px'
+});
+
+
+const changeKeyIndexStyles = css({
+  fontWeight: 'bold',
+  padding: '0 4px',
+  alignSelf: 'flex-start'
+});
+
+const changeSummaryStyles = css({
+  display: 'inline-flex',
+  alignItems: 'flex-start'
+});
+
+function getChangeSummaryClass(obj: ObjectWithChange) {
+  const changeType = getChangeType(obj);
+  console.log({changeType});
+  if (changeType === 'unchanged' || changeType === 'changed') {
+    return undefined;
+  }
+
+  return changeType === 'added' ? addedStyles : removedStyles;
+}
 
 function ChangeArrayItemArray({
   item,
@@ -78,8 +112,8 @@ function ChangeArrayItemArray({
 
   const text = 'Array';
 
-  return (<div className="change-array-item change-array-item-array">
-    <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
+  return (<div className={changeArrayItemStyles}>
+    <div className={changeSummaryStyles}>
       <button
         type="button"
         aria-pressed={isOpen}
@@ -91,8 +125,8 @@ function ChangeArrayItemArray({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className="change-array-index">{item.index}:</div>
-      <div className="change-array-item-summary-text">{text}</div>
+      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(item))}>{item.index}:</div>
+      <div className={getChangeSummaryClass(item)}>{text}</div>
     </div>
     <ChangeArray obj={item} isOpen={isOpen}/>
   </div>);
@@ -112,8 +146,8 @@ function ChangeArrayItemObject({
 
   const text = 'Object';
 
-  return (<div className="change-array-item change-array-item-object">
-    <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
+  return (<div className={changeArrayItemStyles}>
+    <div className={changeSummaryStyles}>
       <button
         type="button"
         aria-pressed={isOpen}
@@ -125,12 +159,16 @@ function ChangeArrayItemObject({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className="change-array-index">{item.index}:</div>
-      <div className="change-array-item-summary-text">{text}</div>
+      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(item))}>{item.index}:</div>
+      <div className={getChangeSummaryClass(item)}>{text}</div>
     </div>
     <ChangeObject obj={item} isOpen={isOpen} />
   </div>);
 }
+
+const changeLeafStyles = css({
+  paddingLeft: '12px' /* line up with expand/collapse */
+});
 
 function ChangeArrayItemLeaf({
   item,
@@ -138,10 +176,10 @@ function ChangeArrayItemLeaf({
   item: ItemWithChange,
 }) {
 
-  return (<div className="change-array-item change-array-item-leaf">
-    <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
-      <div className="change-array-index">{item.index}:</div>
-      <div className="change-array-item-value"><ChangeLeaf obj={item} /></div>
+  return (<div className={cx(changeArrayItemStyles, changeLeafStyles)}>
+    <div className={changeSummaryStyles}>
+      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(item))}>{item.index}:</div>
+      <div className={getChangeSummaryClass(item)}><ChangeLeaf obj={item} /></div>
     </div>
   </div>);
 }
@@ -164,9 +202,29 @@ function ChangeArrayItem({
   return <ChangeArrayItemLeaf item={item} />
 }
 
+const sepStyles = css({
+  marginRight: spacing[1]
+})
+
 function Sep() {
-  return <span className="separator">, </span>;
+  return <span className={sepStyles}>, </span>;
 }
+
+const changeArrayStyles = css({
+  display: 'flex',
+  flexDirection: 'column',
+  paddingLeft: '16px'
+});
+
+const changeArrayInlineWrapStyles = css({
+  marginTop: '1px' // don't touch the previous item
+});
+
+const changeArrayInlineStyles = css({
+  marginLeft: '28px',
+  display: 'inline-flex', /* so the green/red background colour doesn't stretch all the way to the end */
+  flexWrap: 'wrap'
+});
 
 function ChangeArray({
   obj,
@@ -193,7 +251,7 @@ function ChangeArray({
     // of those might take up a lot of space?
     if (items.every((item) => getValueShape(item.changeType === 'added' ? item.right.value : item.left.value) === 'leaf')) {
       // if it is an array containing just leaf values then we can special-case it and output it all on one line
-      const classes = ['change-array-inline'];
+      const classes = [changeArrayInlineStyles];
 
       if (implicitChangeType === 'added') {
         classes.push('change-array-inline-added');
@@ -203,7 +261,7 @@ function ChangeArray({
         classes.push('change-array-inline-removed');
       }
 
-      return (<div className="change-array-inline-wrap"><div className={classes.join(' ')}>[
+      return (<div className={changeArrayInlineWrapStyles}><div className={cx(...classes)}>[
         {items.map((item, index) => {
           const key = getObjectKey(item);
           return <div className="change-array-inline-element" key={key}>
@@ -214,7 +272,7 @@ function ChangeArray({
       ]</div></div>)
     }
 
-    return (<div className="change-array">
+    return (<div className={changeArrayStyles}>
       {items.map((item) => {
         const key = getObjectKey(item);
         return <ChangeArrayItem key={key} item={item}/>
@@ -238,8 +296,8 @@ function ChangeObjectPropertyObject({
 
   const text = 'Object';
 
-  return (<div className="change-object-property change-object-property-object">
-    <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
+  return (<div className={changeObjectPropertyStyles}>
+    <div className={changeSummaryStyles}>
       <button
         type="button"
         aria-pressed={isOpen}
@@ -251,12 +309,18 @@ function ChangeObjectPropertyObject({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className="change-object-key">{property.objectKey}:</div>
-      <div className="change-object-property-summary-text">{text}</div>
+      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(property))}>{property.objectKey}:</div>
+      <div className={getChangeSummaryClass(property)}>{text}</div>
     </div>
     <ChangeObject obj={property} isOpen={isOpen} />
   </div>);
 }
+
+const changeObjectPropertyStyles = css({
+  display: 'flex',
+  flexDirection: 'column',
+  marginTop: '1px' // stop the red/green blocks touching
+});
 
 function ChangeObjectPropertyArray({
   property
@@ -271,8 +335,8 @@ function ChangeObjectPropertyArray({
 
   const text = 'Array';
 
-  return (<div className="change-object-property change-object-property-array">
-    <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
+  return (<div className={changeObjectPropertyStyles}>
+    <div className={changeSummaryStyles}>
       <button
         type="button"
         aria-pressed={isOpen}
@@ -284,8 +348,8 @@ function ChangeObjectPropertyArray({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className="change-object-key">{property.objectKey}:</div>
-      <div className="change-object-property-summary-text">{text}</div>
+      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(property))}>{property.objectKey}:</div>
+      <div className={getChangeSummaryClass(property)}>{text}</div>
     </div>
     <ChangeArray obj={property} isOpen={isOpen}/>
   </div>);
@@ -296,10 +360,10 @@ function ChangeObjectPropertyLeaf({
 }: {
   property: PropertyWithChange
 }) {
-  return (<div className="change-object-property change-object-property-leaf">
-    <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
-      <div className="change-object-key">{property.objectKey}:</div>
-      <div className="change-object-property-value"><ChangeLeaf obj={property} /></div>
+  return (<div className={cx(changeObjectPropertyStyles, changeLeafStyles)}>
+    <div className={changeSummaryStyles}>
+      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(property))}>{property.objectKey}:</div>
+      <div className={getChangeSummaryClass(property)}><ChangeLeaf obj={property} /></div>
     </div>
   </div>);
 }
@@ -322,12 +386,25 @@ function ChangeObjectProperty({
   return <ChangeObjectPropertyLeaf property={property} />
 }
 
+const changeObjectStyles = css({
+  display: 'flex',
+  flexDirection: 'column',
+  paddingLeft: '16px' /* indent all nested properties*/
+})
+
+const rootChangeObjectStyles = css({
+  // don't indent the top-level object
+  paddingLeft: 0
+});
+
 function ChangeObject({
   obj,
-  isOpen
+  isOpen,
+  isRoot
 }: {
   obj: ObjectWithChange,
-  isOpen: boolean
+  isOpen: boolean,
+  isRoot?: boolean
 }) {
   // A sample object / sub-document. ie. not an array and not a leaf.
   const implicitChangeType = getImplicitChangeType(obj);
@@ -338,7 +415,7 @@ function ChangeObject({
     implicitChangeType
   } as BranchesWithChanges);
   if (isOpen) {
-    return (<div className="change-object">
+    return (<div className={cx(changeObjectStyles, isRoot && rootChangeObjectStyles)}>
       {properties.map((property) => {
         const key = getObjectKey(property);
         return <ChangeObjectProperty key={key} property={property} />
@@ -346,38 +423,31 @@ function ChangeObject({
     </div>);
   }
 
-  return null
+  return null;
 }
 
 function getLeftClassName(obj: ObjectWithChange) {
-  // TODO: This is a complete mess and has to be rewritten. The styling should
-  // all use emotion anyway.
-
   if (obj.implicitChangeType === 'removed') {
-    return 'change-removed';
+    return removedStyles;
   }
 
-  if (obj.implicitChangeType === 'added' && obj.changeType === 'unchanged') {
-    return 'change-added';
-  }
-
-  if (obj.implicitChangeType === 'added' || obj.changeType === 'added') {
-    return 'change-added';
+  if (obj.implicitChangeType === 'added') {
+    return addedStyles;
   }
 
   if (obj.changeType === 'unchanged') {
-    return 'unchanged';
+    return undefined;
   }
 
-  return obj.changeType === 'changed' ? 'change-removed' : 'removed';
+  if (obj.changeType === 'removed') {
+    return removedStyles;
+  }
+
+  return obj.changeType === 'changed' ? removedStyles : addedStyles;
 }
 
 function getRightClassName(obj: ObjectWithChange) {
-  if (obj.implicitChangeType === 'added') {
-    return 'change-added';
-  }
-
-  return obj.changeType === 'changed' ? 'change-added' : 'added';
+  return addedStyles;
 }
 
 function getChangeType(obj: ObjectWithChange) {
@@ -400,6 +470,13 @@ function lookupValue(path: ObjectPath, value: any): any {
   }
   return value[head];
 }
+
+const changeValueStyles = css({
+  display: 'inline-flex',
+  flexWrap: 'wrap',
+  columnGap: '4px', // when removed and added are next to each other
+  rowGap: '1px' // when removed & added wrapped
+});
 
 function ChangeLeaf({
   obj,
@@ -434,13 +511,23 @@ function ChangeLeaf({
   const leftValue = includeLeft ? lookupValue((obj.left as Branch).path, left) : undefined;
   const rightValue = includeRight ? lookupValue((obj.right as Branch).path, right) : undefined;
 
-  return <div className="change-value">
+  // TODO: BSONValue does not deal with `null`
+  // TODO: BSONValue does not always show the bson type, so you can't spot bson type changes
+  return <div className={changeValueStyles}>
     {leftValue && <div className={getLeftClassName(obj)}>{<BSONValue type={getType(leftValue)} value={leftValue} />}</div>}
     {rightValue && <div className={getRightClassName(obj)}>{<BSONValue type={getType(rightValue)} value={rightValue} />}</div>}
   </div>;
 }
 
 const LeftRightContext = createContext<LeftRightContextType | null>(null);
+
+const changeViewStyles = css({
+  overflow: 'auto',
+  fontFamily: fontFamilies.code,
+  fontSize: '12px',
+  lineHeight: '16px',
+  color: palette.gray.dark2
+});
 
 export function ChangeView({
   name,
@@ -479,6 +566,6 @@ export function ChangeView({
   // can easily find them again to lookup the original BSON values. Otherwise
   // we'd have to pass references down through every component.
   return <LeftRightContext.Provider value={{ left: before, right: after }}>
-    <div className="change-view" data-testid={`change-view-{${name}}`}><ChangeObject obj={obj} isOpen={true}/></div>
+    <div className={changeViewStyles} data-testid={`change-view-{${name}}`}><ChangeObject obj={obj} isOpen={true} isRoot={true}/></div>
   </LeftRightContext.Provider>;
 }

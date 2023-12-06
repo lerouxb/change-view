@@ -14,7 +14,15 @@ const appStyles = css({
 });
 
 const fixtureSelectorStyles = css({
-  paddingBottom: spacing[3]
+  paddingRight: spacing[4],
+  paddingBottom: spacing[3],
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end'
+});
+
+const selectStyles = css({
+  minWidth: '300px'
 });
 
 const cardStyles = css({
@@ -93,7 +101,7 @@ function App() {
     <div className={appStyles}>
       <div className={fixtureSelectorStyles}>
         {/* @ts-expect-error leafygreen unreasonably expects a labelledby here */}
-        <Select onChange={onChangeFixture} allowDeselect={false} defaultValue={fixtureName} aria-label="Fixture">
+        <Select onChange={onChangeFixture} allowDeselect={false} defaultValue={fixtureName} aria-label="Fixture" className={selectStyles}>
           {fixtureGroups.map((group) => (
             <OptionGroup label={group.name} key={group.name}>
             {group.fixtures.map((fixture) => (
