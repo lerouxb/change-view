@@ -1,6 +1,6 @@
 import React, { useState, useContext, createContext } from 'react';
 
-import { BSONValue } from '@mongodb-js/compass-components';
+import { BSONValue, Icon, css } from '@mongodb-js/compass-components';
 
 import { type Document } from 'bson';
 
@@ -26,6 +26,17 @@ type LeftRightContextType = {
   left: any;
   right: any;
 }
+
+const expandButton = css({
+  margin: 0,
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  '&:hover': {
+    cursor: 'pointer',
+  },
+  display: 'flex',
+});
 
 function getImplicitChangeType(obj: ObjectWithChange) {
   if (['added', 'removed'].includes(obj.implicitChangeType)) {
@@ -69,7 +80,17 @@ function ChangeArrayItemArray({
 
   return (<div className="change-array-item change-array-item-array">
     <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
-      <button className="toggle-array-item" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
+      <button
+        type="button"
+        aria-pressed={isOpen}
+        aria-label={isOpen ? 'Collapse field items' : 'Expand field items'}
+        className={expandButton} onClick={toggleIsOpen}
+      >
+        <Icon
+            size="xsmall"
+            glyph={isOpen ? 'CaretDown' : 'CaretRight'}
+          ></Icon>
+      </button>
       <div className="change-array-index">{item.index}:</div>
       <div className="change-array-item-summary-text">{text}</div>
     </div>
@@ -93,7 +114,17 @@ function ChangeArrayItemObject({
 
   return (<div className="change-array-item change-array-item-object">
     <div className={`change-array-item-summary change-summary-${getChangeType(item)}`}>
-      <button className="toggle-array-item" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
+      <button
+        type="button"
+        aria-pressed={isOpen}
+        aria-label={isOpen ? 'Collapse field items' : 'Expand field items'}
+        className={expandButton} onClick={toggleIsOpen}
+      >
+        <Icon
+            size="xsmall"
+            glyph={isOpen ? 'CaretDown' : 'CaretRight'}
+          ></Icon>
+      </button>
       <div className="change-array-index">{item.index}:</div>
       <div className="change-array-item-summary-text">{text}</div>
     </div>
@@ -209,7 +240,17 @@ function ChangeObjectPropertyObject({
 
   return (<div className="change-object-property change-object-property-object">
     <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
-      <button className="toggle-object-property" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
+      <button
+        type="button"
+        aria-pressed={isOpen}
+        aria-label={isOpen ? 'Collapse field items' : 'Expand field items'}
+        className={expandButton} onClick={toggleIsOpen}
+      >
+        <Icon
+            size="xsmall"
+            glyph={isOpen ? 'CaretDown' : 'CaretRight'}
+          ></Icon>
+      </button>
       <div className="change-object-key">{property.objectKey}:</div>
       <div className="change-object-property-summary-text">{text}</div>
     </div>
@@ -232,7 +273,17 @@ function ChangeObjectPropertyArray({
 
   return (<div className="change-object-property change-object-property-array">
     <div className={`change-object-property-summary change-summary-${getChangeType(property)}`}>
-      <button className="toggle-object-property" onClick={toggleIsOpen}>{isOpen ? '-' : '+'}</button>
+      <button
+        type="button"
+        aria-pressed={isOpen}
+        aria-label={isOpen ? 'Collapse field items' : 'Expand field items'}
+        className={expandButton} onClick={toggleIsOpen}
+      >
+        <Icon
+            size="xsmall"
+            glyph={isOpen ? 'CaretDown' : 'CaretRight'}
+          ></Icon>
+      </button>
       <div className="change-object-key">{property.objectKey}:</div>
       <div className="change-object-property-summary-text">{text}</div>
     </div>

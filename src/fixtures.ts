@@ -249,157 +249,215 @@ const airbnb = EJSON.deserialize({
   "reviews_per_month": 0.2
 }, { relaxed: false });
 
-export const fixtures: Fixture[] = [
+type FixtureGroup = {
+  name: string,
+  fixtures: Fixture[]
+};
+
+export const fixtureGroups: FixtureGroup[] = [
   {
-    name: 'all types identical',
-    before: allTypesDoc,
-    after: _.clone(allTypesDoc)
+    name: 'all types',
+    fixtures: [
+      {
+        name: 'all types identical',
+        before: allTypesDoc,
+        after: _.clone(allTypesDoc)
+      },
+      {
+        name: 'small change',
+        before: allTypesDoc,
+        after: smallChangeDoc
+      },
+      {
+        name: 'all types add',
+        before: {},
+        after: allTypesDoc
+      },
+      {
+        name: 'all types remove',
+        before: allTypesDoc,
+        after: {}
+      },
+      {
+        name: 'all types changed',
+        before: allTypesDoc,
+        after: allTypesDocChanged
+      },
+    ]
   },
   {
-    name: 'small change',
-    before: allTypesDoc,
-    after: smallChangeDoc
+    name: 'simple',
+    fixtures: [
+      {
+        name: 'simple add',
+        before: {},
+        after: { foo: 'bar' }
+      },
+      {
+        name: 'simple remove',
+        before: { foo: 'bar' },
+        after: {}
+      },
+      {
+        name: 'same simple type',
+        before: { foo: 1 },
+        after: { foo: 2}
+      },
+      {
+        name: 'different simple types',
+        before: { foo: 1 },
+        after: { foo: 'a'}
+      },
+      {
+        name: 'add field',
+        before: { foo: 'a' },
+        after: { foo: 'a', bar: 'b'}
+      },
+      {
+        name: 'remove field',
+        before: { foo: 'a', bar: 'b'},
+        after: { foo: 'a' },
+      },
+    ]
   },
   {
-    name: 'simple add',
-    before: {},
-    after: { foo: 'bar' }
-  }, {
-    name: 'simple remove',
-    before: { foo: 'bar' },
-    after: {}
-  }, {
-    name: 'all types add',
-    before: {},
-    after: allTypesDoc
-  }, {
-    name: 'all types remove',
-    before: allTypesDoc,
-    after: {}
-  }, {
-    name: 'all types changed',
-    before: allTypesDoc,
-    after: allTypesDocChanged
-  }, {
-    name: 'nested change object',
-    before: { foo: { bar: 1 }},
-    after: { foo: { bar: 'a'}}
-  }, {
-    name: 'nested change-array',
-    before: { foo: { bar: [1] }},
-    after: { foo: { bar: ['a']}}
-  }, {
-    name: 'nested change array deep',
-    before: { foo: { bar: [[1]] }},
-    after: { foo: { bar: [['a']] }}
-  }, {
-    name: 'same simple type',
-    before: { foo: 1 },
-    after: { foo: 2}
-  }, {
-    name: 'different simple types',
-    before: { foo: 1 },
-    after: { foo: 'a'}
-  }, {
-    name: 'simple to object',
-    before: { foo: 1 },
-    after: { foo: { bar: 'baz' } }
-  }, {
-    name: 'simple to array',
-    before: { foo: 1 },
-    after: { foo: [1, 2] }
-  }, {
-    name: 'object to array',
-    before: { foo: { bar: 'baz' } },
-    after: { foo: [1, 2] }
-  }, {
-    name: 'array to object',
-    before: { foo: [1, 2] },
-    after: { foo: { bar: 'baz' } }
-  }, {
-    name: 'object to simple',
-    before: { foo: { bar: 'baz' } },
-    after: { foo: 1 },
-  }, {
-    name: 'array to simple',
-    before: { foo: [1, 2] },
-    after: { foo: 1 }
-  }, {
-    name: 'nested object value',
-    before: { foo: { bar: 'baz' } },
-    after: { foo: { bar: 1 } }
-  }, {
-    name: 'array item',
-    before: { foo: { bar: ['baz'] } },
-    after: { foo: { bar: [1] } }
-  }, {
-    name: 'nested array item',
-    before: { foo: { bar: [['baz']] } },
-    after: { foo: { bar: [[1]] } }
-  }, {
-    name: 'object value nested in an array',
-    before: { foo: [{ bar: 1 }] },
-    after: { foo: [{ bar: 2 }] }
-  }, {
-    name: 'simple array',
-    before: { foo: [1, 2, 3] },
-    after: { foo: ['a', 'b', 'c'] },
-  }, {
-    name: 'add simple value to array',
-    before: { foo: [1, 2, 3] },
-    after: { foo: [1, 2, 3, 4] },
-  }, {
-    name: 'add object to array',
-    before: { foo: [{ a: 1}] },
-    after: { foo: [{ a: 1}, { bar: 'baz' }] },
-  }, {
-    name: 'add array to array',
-    before: { foo: [[1]] },
-    after: { foo: [[1], [2]] },
-  }, {
-    name: 'remove simple value from array',
-    before: { foo: [1, 2, 3] },
-    after: { foo: [1, 3] },
-  }, {
-    name: 'remove object from array',
-    before: { foo: [{ a: 1}, { bar: 'baz' }] },
-    after: { foo: [{ a: 1}] },
-  }, {
-    name: 'remove array from array',
-    before: { foo: [[1], [2]] },
-    after: { foo: [[1]] },
-  }, {
-    name: 'type change',
-    before: { foo: new Double(1.2) },
-    after: { foo: new Int32(1) }
-  }, {
-    name: 'add field',
-    before: { foo: 'a' },
-    after: { foo: 'a', bar: 'b'}
-  }, {
-    name: 'remove field',
-    before: { foo: 'a', bar: 'b'},
-    after: { foo: 'a' },
-  }, {
-    name: 'add number next to object in array',
-    before: { foo: [{ bar: 'baz' }]},
-    after: { foo: [0, { bar: 'baz' }]},
-  }, {
-    name: 'remove number next to object in array',
-    before: { foo: [0, { bar: 'baz' }]},
-    after: { foo: [{ bar: 'baz' }]},
-  }, {
-    name: 'object inside array changed',
-    before: { foo: [0, { bar: 'baz' }]},
-    after: { foo: [0, { bar: 'bazz' }]},
-  }, {
-    name: 'airbnb',
-    before: airbnb,
-    after: _.clone(airbnb)
+    name: 'nested object changes',
+    fixtures: [
+      {
+        name: 'nested object simple',
+        before: { foo: { bar: 1 }},
+        after: { foo: { bar: 'a'}}
+      },
+      {
+        name: 'nested object array simple',
+        before: { foo: { bar: [1] }},
+        after: { foo: { bar: ['a']}}
+      },
+      {
+        name: 'nested object array array simple',
+        before: { foo: { bar: [[1]] }},
+        after: { foo: { bar: [['a']] }}
+      },
+    ]
+  },
+  {
+    name: 'array changes',
+    fixtures: [
+      {
+        name: 'simple array',
+        before: { foo: [1, 2, 3] },
+        after: { foo: ['a', 'b', 'c'] },
+      },
+      {
+        name: 'add simple value to array',
+        before: { foo: [1, 2, 3] },
+        after: { foo: [1, 2, 3, 4] },
+      },
+      {
+        name: 'add object to array',
+        before: { foo: [{ a: 1}] },
+        after: { foo: [{ a: 1}, { bar: 'baz' }] },
+      },
+      {
+        name: 'add array to array',
+        before: { foo: [[1]] },
+        after: { foo: [[1], [2]] },
+      },
+      {
+        name: 'remove simple value from array',
+        before: { foo: [1, 2, 3] },
+        after: { foo: [1, 3] },
+      },
+      {
+        name: 'remove object from array',
+        before: { foo: [{ a: 1}, { bar: 'baz' }] },
+        after: { foo: [{ a: 1}] },
+      },
+      {
+        name: 'remove array from array',
+        before: { foo: [[1], [2]] },
+        after: { foo: [[1]] },
+      },
+    ]
+  },
+  {
+    name: 'objects in arrays',
+    fixtures: [
+      {
+        name: 'object value nested in an array',
+        before: { foo: [{ bar: 1 }] },
+        after: { foo: [{ bar: 2 }] }
+      },
+      {
+        name: 'add number next to object in array',
+        before: { foo: [{ bar: 'baz' }]},
+        after: { foo: [0, { bar: 'baz' }]},
+      },
+      {
+        name: 'remove number next to object in array',
+        before: { foo: [0, { bar: 'baz' }]},
+        after: { foo: [{ bar: 'baz' }]},
+      },
+      {
+        name: 'object inside array changed',
+        before: { foo: [0, { bar: 'baz' }]},
+        after: { foo: [0, { bar: 'bazz' }]},
+      },
+    ]
+  },
+  {
+    name: 'shape changes',
+    fixtures: [
+      {
+        name: 'simple to object',
+        before: { foo: 1 },
+        after: { foo: { bar: 'baz' } }
+      },
+      {
+        name: 'simple to array',
+        before: { foo: 1 },
+        after: { foo: [1, 2] }
+      },
+      {
+        name: 'object to array',
+        before: { foo: { bar: 'baz' } },
+        after: { foo: [1, 2] }
+      },
+      {
+        name: 'object to simple',
+        before: { foo: { bar: 'baz' } },
+        after: { foo: 1 },
+      },
+      {
+        name: 'array to object',
+        before: { foo: [1, 2] },
+        after: { foo: { bar: 'baz' } }
+      },
+      {
+        name: 'array to simple',
+        before: { foo: [1, 2] },
+        after: { foo: 1 }
+      },
+    ]
+  },
+  {
+    name: 'bson',
+    fixtures: [
+      {
+        name: 'type change',
+        before: { foo: new Double(1.2) },
+        after: { foo: new Int32(1) }
+      },
+    ]
+  },
+  {
+    name: 'stress tests',
+    fixtures: [
+      {
+        name: 'airbnb',
+        before: airbnb,
+        after: _.clone(airbnb)
+      }
+    ]
   }
 ];
-
-
-/*
-remove array from array
-*/

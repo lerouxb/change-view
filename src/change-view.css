@@ -11,6 +11,7 @@ button {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
+/*
 .toggle-object-property,
 .toggle-array-item {
   background-color: transparent;
@@ -22,37 +23,67 @@ button {
   line-height: 16px;
   display: inline;
 }
+*/
+
+.separator {
+  margin-right: 4px;
+}
+
+.change-object,
+.change-array {
+  display: flex;
+  flex-direction: column;
+}
+
+.change-object-property {
+  display: flex;
+  flex-direction: column;
+  margin-top: 1px; /* stop the red/green blocks touching */
+}
+
+.change-array-item {
+  display: flex;
+  flex-direction: column;
+  margin-top: 1px;
+}
+
+.change-array-inline-wrap {
+  margin-top: 1px;
+}
 
 .change-object-key,
 .change-array-index {
   font-weight: bold;
-  padding-right: 4px;
+  padding: 0 4px;
 }
 
 .change-value {
-  display: inline-block;
+  display: inline-flex;
 }
 
 .change-object-property-summary,
 .change-array-item-summary {
   display: inline-flex;
+  align-items: flex-start;
+  align-items: center;
 }
 
 .change-object-property > .change-object,
 .change-object-property > .change-array,
 .change-array-item > .change-object,
 .change-array-item > .change-array {
-  padding-left: 12px; /* indent all nested properties*/
+  padding-left: 16px; /* indent all nested properties*/
 }
 
 .change-array-inline {
-  margin-left: 24px;
-  display: inline-block; /* so the green/red background colour doesn't stretch all the way to the end*/
+  margin-left: 28px;
+  display: inline-flex; /* so the green/red background colour doesn't stretch all the way to the end*/
+  flex-wrap: wrap;
 }
 
 .change-array-inline-element,
 .change-array-inline-element .change-value > * {
-  display: inline;
+  flex-shrink: 0;
 }
 
 .change-object-property-leaf,
@@ -63,7 +94,7 @@ button {
 .change-unchanged,
 .change-added,
 .change-removed {
-  display: inline-block;
+  display: inline-flex;
 }
 
 .change-summary-added .change-object-key,
@@ -75,7 +106,7 @@ button {
 .change-added,
 .change-value .added,
 .change-array-inline-added {
-  background-color: lightgreen;
+  background-color: #71F6BA;
 }
 
 .change-summary-removed .change-object-key,
@@ -87,7 +118,7 @@ button {
 .change-removed,
 .change-value .removed,
 .change-array-inline-removed {
-  background-color: #F08080;
+  background-color: #FFCDC7;
 }
 
 .change-removed + .change-added {

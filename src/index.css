@@ -5,11 +5,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
 
-#root {
-  min-height: 100vh;
   padding: 24px;
-  box-sizing: border-box;
   background-color: #f2f2f2;
 }
