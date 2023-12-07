@@ -1,10 +1,12 @@
 import type { Delta } from 'jsondiffpatch';
 import jsondiffpatch from 'jsondiffpatch';
 
-import { stringifyBSON } from './bson-utils';
+import { type Document } from 'bson';
+
+import { stringifyBSON, unBSON, getType } from './bson-utils';
 import { isSimpleObject, getValueShape } from './shape-utils';
 
-export const differ = jsondiffpatch.create({
+const differ = jsondiffpatch.create({
   arrays: {
     // Array moves are really complicated to visualise both technically and also
     // usability-wise. (see jsondiffpatch's demo). With this set to false array
@@ -30,7 +32,7 @@ export type ObjectPath = (string | number)[];
 
 type ChangeType = 'unchanged'|'changed'|'added'|'removed';
 
-export type ObjectWithChange = {
+export type UnifiedBranch = {
   implicitChangeType: ChangeType;
   delta: Delta | null;
 } & (
@@ -39,12 +41,57 @@ export type ObjectWithChange = {
   | { left: Branch, right?: never, changeType: 'removed' }
 );
 
-export type PropertyWithChange = ObjectWithChange & {
+// Only the root object, really. otherwise it will be ObjectPropertyBranch
+// or ObjectItemBranch
+export type ObjectBranch = UnifiedBranch & {
+  properties: PropertyBranch[]
+};
+
+// Either an ArrayPropertyBranch or an ArrayItemBranch
+// { foo: [ /* this */ ] }
+// { foo: [[ /* this */ ]] }
+export type ArrayBranch = UnifiedBranch & {
+  items: ItemBranch[]
+};
+
+// Either an ObjectPropertyBranch or an ArrayPropertyBranch ir just a PropertyBranch
+// { foo: { /* this */ }}
+// { foo: [ /* this */ ]}
+// { foo: /*  any simple value here */ }
+export type PropertyBranch = UnifiedBranch & {
   objectKey: string;
 };
 
-export type ItemWithChange = ObjectWithChange & {
+// { foo: { /* this */ } }
+export type ObjectPropertyBranch = UnifiedBranch & {
+  objectKey: string;
+  properties: PropertyBranch[]
+};
+
+// { foo: [ /* this */ ] }
+export type ArrayPropertyBranch = UnifiedBranch & {
+  objectKey: string;
+  items: ItemBranch[]
+};
+
+// Either an ObjectItemBranch or an ArrayItemBranch or just an ItemBranch
+// { foo: [{ /* this */ }]}
+// { foo: [[ /* this */ ]]}
+// { foo: [/*  any simple value here */ ]}
+export type ItemBranch = UnifiedBranch & {
   index: number;
+};
+
+// { foo: [{ /* this */ }]}
+export type ObjectItemBranch = UnifiedBranch & {
+  index: number;
+  properties: PropertyBranch[]
+};
+
+// { foo: [[ /* this */ ]]}
+export type ArrayItemBranch = UnifiedBranch & {
+  index: number;
+  items: ItemBranch[]
 };
 
 export type Branch = {
@@ -69,7 +116,7 @@ function assert(bool: boolean, message: string) {
 }
 
 
-export function propertiesWithChanges({
+function propertiesWithChanges({
   left,
   right,
   delta,
@@ -82,8 +129,8 @@ export function propertiesWithChanges({
   // still use the left/before data.
   const value = implicitChangeType === 'added' ? (right as Branch).value : (left as Branch).value;
 
-  const properties: PropertyWithChange[] = Object.entries(value).map(([objectKey, leftValue]): PropertyWithChange => {
-    const prop: Omit<PropertyWithChange, 'left' | 'right' | 'changeType'>  ={
+  const properties = Object.entries(value).map(([objectKey, leftValue]): PropertyBranch => {
+    const prop = {
       implicitChangeType,
       objectKey,
       // We'll fill in delta below if this is an unchanged object with changes
@@ -155,7 +202,7 @@ export function propertiesWithChanges({
               value: change[0],
             },
             delta: null
-          } as PropertyWithChange);
+          });
         } else if (change.length === 2) {
           // update
           const existingProperty = properties.find((p) => p.objectKey === key);
@@ -214,17 +261,17 @@ export function propertiesWithChanges({
     if (index !== -1) {
       const property = properties[index];
       changed = true;
-      const deleteProperty: PropertyWithChange = {
+      const deleteProperty = {
         implicitChangeType,
-        changeType: 'removed',
+        changeType: 'removed' as const,
         objectKey: property.objectKey,
         left: property.left as Branch,
         delta: null
       };
 
-      const addProperty: PropertyWithChange = {
+      const addProperty = {
         implicitChangeType,
-        changeType: 'added',
+        changeType: 'added' as const,
         objectKey: property.objectKey,
         right: {
           // both exist because we just checked it above
@@ -237,10 +284,29 @@ export function propertiesWithChanges({
     }
   }
 
+  for (const property of properties) {
+    const value = property.changeType === 'added' ? property.right.value : property.left.value;
+    if (Array.isArray(value)) {
+      (property as ArrayPropertyBranch).items = itemsWithChanges({
+        left: property.left ?? undefined,
+        right: property.right ?? undefined,
+        delta: property.delta,
+        implicitChangeType: getImplicitChangeType(property)
+      } as BranchesWithChanges);
+    } else if (isSimpleObject(value)) {
+      (property as ObjectPropertyBranch).properties = propertiesWithChanges({
+        left: property.left ?? undefined,
+        right: property.right ?? undefined,
+        delta: property.delta,
+        implicitChangeType: getImplicitChangeType(property)
+      } as BranchesWithChanges);
+    }
+  }
+
   return properties;
 }
 
-export function itemsWithChanges({
+function itemsWithChanges({
   left,
   right,
   delta,
@@ -249,8 +315,8 @@ export function itemsWithChanges({
   // Same reasoning here as for propertiesWithChanges
   const value = (implicitChangeType === 'added' ? (right as Branch).value : (left as Branch).value) as any[];
 
-  const items: ItemWithChange[] = value.map((leftValue, index): ItemWithChange => {
-    const item: Omit<ItemWithChange, 'left' | 'right' | 'changeType'>  = {
+  const items = value.map((leftValue, index): ItemBranch => {
+    const item = {
       implicitChangeType,
       index,
       // Array changes don't work like object changes where it is possible for a
@@ -374,5 +440,72 @@ export function itemsWithChanges({
     }
   }
 
+  for (const item of items) {
+    const value = item.changeType === 'added' ? item.right.value : item.left.value;
+    if (Array.isArray(value)) {
+      (item as ArrayItemBranch).items = itemsWithChanges({
+        left: item.left ?? undefined,
+        right: item.right ?? undefined,
+        delta: item.delta,
+        implicitChangeType: getImplicitChangeType(item)
+      } as BranchesWithChanges);
+    } else if (isSimpleObject(value)) {
+      (item as ObjectItemBranch).properties = propertiesWithChanges({
+        left: item.left ?? undefined,
+        right: item.right ?? undefined,
+        delta: item.delta,
+        implicitChangeType: getImplicitChangeType(item)
+      } as BranchesWithChanges);
+    }
+  }
+
   return items;
+}
+
+export function getImplicitChangeType(obj: UnifiedBranch) {
+  if (['added', 'removed'].includes(obj.implicitChangeType)) {
+    // these are "sticky" as we descend
+    return obj.implicitChangeType;
+  }
+
+  return obj.changeType;
+}
+
+export function unifyDocuments(before: Document, after: Document): ObjectBranch {
+  // The idea here is to format BSON leaf values as text (shell syntax) so that
+  // jsondiffpatch can easily diff them. Because we calculate the left and right
+  // path for every value we can easily look up the BSON leaf value again and
+  // use that when displaying if we choose to.
+  const left = unBSON(before);
+  const right = unBSON(after);
+
+  const delta = differ.diff(left, right) ?? null;
+
+  const obj: UnifiedBranch = {
+    left: {
+      path: [],
+      value: before
+    },
+    right: {
+      path: [],
+      value: after
+    },
+    delta,
+    implicitChangeType: 'unchanged',
+    changeType: 'unchanged',
+  };
+
+  const doc = {
+    ...obj,
+    properties: propertiesWithChanges({
+      left: obj.left ?? undefined,
+      right: obj.right ?? undefined,
+      delta: obj.delta,
+      implicitChangeType: 'unchanged'
+    })
+  };
+
+  console.log('unified', doc);
+
+  return doc;
 }

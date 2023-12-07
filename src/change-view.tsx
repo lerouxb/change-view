@@ -5,17 +5,21 @@ import { BSONValue, Icon, css, cx, palette, spacing, fontFamilies, useDarkMode }
 import { type Document } from 'bson';
 
 import {
-  differ,
-  propertiesWithChanges,
-  itemsWithChanges
+  getImplicitChangeType,
+  unifyDocuments
 }  from './unified-document';
 import type {
   ObjectPath,
-  ObjectWithChange,
-  PropertyWithChange,
-  ItemWithChange,
+  UnifiedBranch,
+  ObjectBranch,
+  ArrayBranch,
+  PropertyBranch,
+  ObjectPropertyBranch,
+  ArrayPropertyBranch,
+  ItemBranch,
+  ObjectItemBranch,
+  ArrayItemBranch,
   Branch,
-  BranchesWithChanges
 } from './unified-document';
 import { stringifyBSON, unBSON, getType } from './bson-utils';
 import { isSimpleObject, getValueShape} from './shape-utils'
@@ -53,16 +57,7 @@ const removedStylesLight = css({
   backgroundColor: palette.red.light2
 });
 
-function getImplicitChangeType(obj: ObjectWithChange) {
-  if (['added', 'removed'].includes(obj.implicitChangeType)) {
-    // these are "sticky" as we descend
-    return obj.implicitChangeType;
-  }
-
-  return obj.changeType;
-}
-
-function getObjectKey(obj: ObjectWithChange) {
+function getObjectKey(obj: UnifiedBranch) {
   const path = (obj.right ?? obj.left).path;
 
   const parts: string[] = [];
@@ -97,7 +92,7 @@ const changeSummaryStyles = css({
   alignItems: 'flex-start'
 });
 
-function getChangeSummaryClass(obj: ObjectWithChange, darkMode?: boolean) {
+function getChangeSummaryClass(obj: UnifiedBranch, darkMode?: boolean) {
   const changeType = getChangeType(obj);
   if (changeType === 'unchanged' || changeType === 'changed') {
     return undefined;
@@ -114,7 +109,7 @@ function getChangeSummaryClass(obj: ObjectWithChange, darkMode?: boolean) {
 function ChangeArrayItemArray({
   item,
 }: {
-  item: ItemWithChange,
+  item: ItemBranch,
 }) {
   const [isOpen, setIsOpen] = useState(!!item.delta || item.changeType !== 'unchanged');
 
@@ -143,14 +138,14 @@ function ChangeArrayItemArray({
       <div className={cx(changeKeyIndexStyles, summaryClass)}>{item.index}:</div>
       <div className={summaryClass}>{text}</div>
     </div>
-    <ChangeArray obj={item} isOpen={isOpen}/>
+    <ChangeArray obj={item as ArrayItemBranch} isOpen={isOpen}/>
   </div>);
 }
 
 function ChangeArrayItemObject({
   item,
 }: {
-  item: ItemWithChange,
+  item: ObjectItemBranch,
 }) {
 
   const [isOpen, setIsOpen] = useState(!!item.delta || item.changeType !== 'unchanged');
@@ -191,7 +186,7 @@ const changeLeafStyles = css({
 function ChangeArrayItemLeaf({
   item,
 }: {
-  item: ItemWithChange,
+  item: ItemBranch,
 }) {
 
   const darkMode = useDarkMode();
@@ -208,15 +203,15 @@ function ChangeArrayItemLeaf({
 function ChangeArrayItem({
   item,
 }: {
-  item: ItemWithChange,
+  item: ItemBranch,
 }) {
   const value = item.changeType === 'added' ? item.right.value : item.left.value;
   if (Array.isArray(value)) {
     // array summary followed by array items if expanded
-    return <ChangeArrayItemArray item={item} />
+    return <ChangeArrayItemArray item={item as ArrayItemBranch} />
   } else if (isSimpleObject(value)) {
     // object summary followed by object properties if expanded
-    return <ChangeArrayItemObject item={item} />
+    return <ChangeArrayItemObject item={item as ObjectItemBranch} />
   }
 
   // simple/bson value only
@@ -251,26 +246,20 @@ function ChangeArray({
   obj,
   isOpen
 }: {
-  obj: ObjectWithChange,
+  obj: ArrayBranch,
   isOpen: boolean
 }) {
-  const implicitChangeType = getImplicitChangeType(obj);
-  const items = itemsWithChanges({
-    left: obj.left ?? undefined,
-    right: obj.right ?? undefined,
-    delta: obj.delta,
-    implicitChangeType
-  } as BranchesWithChanges);
 
   if (isOpen) {
     // TODO: this would be even nicer in place of the "Array" text and then we
-    // don't even have to make the object key expandable or not, but that
-    // requires itemsWithChanges() being called one level up
+    // don't even have to make the object key expandable or not
+
+    const implicitChangeType = getImplicitChangeType(obj);
 
     // TODO: we might want to go further and only do this for simple values like
     // strings, numbers, booleans, nulls, etc. ie. not bson types because some
     // of those might take up a lot of space?
-    if (items.every((item) => getValueShape(item.changeType === 'added' ? item.right.value : item.left.value) === 'leaf')) {
+    if (obj.items.every((item) => getValueShape(item.changeType === 'added' ? item.right.value : item.left.value) === 'leaf')) {
       // if it is an array containing just leaf values then we can special-case it and output it all on one line
       const classes = [changeArrayInlineStyles];
 
@@ -283,18 +272,18 @@ function ChangeArray({
       }
 
       return (<div className={changeArrayInlineWrapStyles}><div className={cx(...classes)}>[
-        {items.map((item, index) => {
+        {obj.items.map((item, index) => {
           const key = getObjectKey(item);
           return <div className="change-array-inline-element" key={key}>
             <ChangeLeaf obj={item} />
-            {index !== items.length -1 && <Sep/>}
+            {index !== obj.items.length -1 && <Sep/>}
           </div>
         })}
       ]</div></div>)
     }
 
     return (<div className={changeArrayStyles}>
-      {items.map((item) => {
+      {obj.items.map((item) => {
         const key = getObjectKey(item);
         return <ChangeArrayItem key={key} item={item}/>
       })}
@@ -307,7 +296,7 @@ function ChangeArray({
 function ChangeObjectPropertyObject({
   property
 }: {
-  property: PropertyWithChange
+  property: ObjectPropertyBranch
 }) {
   const [isOpen, setIsOpen] = useState(!!property.delta || property.changeType !== 'unchanged');
 
@@ -349,7 +338,7 @@ const changeObjectPropertyStyles = css({
 function ChangeObjectPropertyArray({
   property
 }: {
-  property: PropertyWithChange
+  property: PropertyBranch
 }) {
   const [isOpen, setIsOpen] = useState(!!property.delta || property.changeType !== 'unchanged');
 
@@ -378,14 +367,14 @@ function ChangeObjectPropertyArray({
       <div className={cx(changeKeyIndexStyles, summaryClass)}>{property.objectKey}:</div>
       <div className={summaryClass}>{text}</div>
     </div>
-    <ChangeArray obj={property} isOpen={isOpen}/>
+    <ChangeArray obj={property as ArrayPropertyBranch} isOpen={isOpen}/>
   </div>);
 }
 
 function ChangeObjectPropertyLeaf({
   property
 }: {
-  property: PropertyWithChange
+  property: PropertyBranch
 }) {
   const darkMode = useDarkMode();
   const summaryClass = getChangeSummaryClass(property, darkMode);
@@ -401,15 +390,15 @@ function ChangeObjectPropertyLeaf({
 function ChangeObjectProperty({
   property
 }: {
-  property: PropertyWithChange
+  property: PropertyBranch
 }) {
   const value = property.changeType === 'added' ? property.right.value : property.left.value;
   if (Array.isArray(value)) {
     // array summary followed by array items if expanded
-    return <ChangeObjectPropertyArray property={property}/>
+    return <ChangeObjectPropertyArray property={property as ArrayPropertyBranch}/>
   } else if (isSimpleObject(value)) {
     // object summary followed by object properties if expanded
-    return <ChangeObjectPropertyObject property={property} />
+    return <ChangeObjectPropertyObject property={property as ObjectPropertyBranch} />
   }
 
   // simple/bson value only
@@ -432,21 +421,14 @@ function ChangeObject({
   isOpen,
   isRoot
 }: {
-  obj: ObjectWithChange,
+  obj: ObjectBranch,
   isOpen: boolean,
   isRoot?: boolean
 }) {
   // A sample object / sub-document. ie. not an array and not a leaf.
-  const implicitChangeType = getImplicitChangeType(obj);
-  const properties = propertiesWithChanges({
-    left: obj.left ?? undefined,
-    right: obj.right ?? undefined,
-    delta: obj.delta,
-    implicitChangeType
-  } as BranchesWithChanges);
   if (isOpen) {
     return (<div className={cx(changeObjectStyles, isRoot && rootChangeObjectStyles)}>
-      {properties.map((property) => {
+      {obj.properties.map((property) => {
         const key = getObjectKey(property);
         return <ChangeObjectProperty key={key} property={property} />
       })}
@@ -456,7 +438,7 @@ function ChangeObject({
   return null;
 }
 
-function getLeftClassName(obj: ObjectWithChange, darkMode?: boolean) {
+function getLeftClassName(obj: UnifiedBranch, darkMode?: boolean) {
   const addedClass = darkMode ? addedStylesDark : addedStylesLight;
   const removedClass = darkMode ? removedStylesDark : removedStylesLight;
 
@@ -479,11 +461,11 @@ function getLeftClassName(obj: ObjectWithChange, darkMode?: boolean) {
   return obj.changeType === 'changed' ? removedClass : addedClass;
 }
 
-function getRightClassName(obj: ObjectWithChange, darkMode?: boolean) {
+function getRightClassName(obj: UnifiedBranch, darkMode?: boolean) {
   return darkMode ? addedStylesDark : addedStylesLight;
 }
 
-function getChangeType(obj: ObjectWithChange) {
+function getChangeType(obj: UnifiedBranch) {
   // TODO: I can't remember why I made it possible for obj.changeType to be
   // different from obj.implicitChangeType. Once a branch is added then
   // everything below that is also added, right? Might have been some styling
@@ -514,7 +496,7 @@ const changeValueStyles = css({
 function ChangeLeaf({
   obj,
 }: {
-  obj: ObjectWithChange
+  obj: UnifiedBranch
 }) {
   // Anything that is not an object or array. This includes simple javascript
   // values like strings, numbers, booleans and undefineds, but also dates or
@@ -580,29 +562,8 @@ export function ChangeView({
   before: Document,
   after: Document
 }) {
-  // The idea here is to format BSON leaf values as text (shell syntax) so that
-  // jsondiffpatch can easily diff them. Because we calculate the left and right
-  // path for every value we can easily look up the BSON leaf value again and
-  // use that when displaying if we choose to.
-  const left = unBSON(before);
-  const right = unBSON(after);
 
-  const delta = differ.diff(left, right) ?? null;
-  console.log(delta);
-
-  const obj: ObjectWithChange = {
-    left: {
-      path: [],
-      value: before
-    },
-    right: {
-      path: [],
-      value: after
-    },
-    delta,
-    implicitChangeType: 'unchanged',
-    changeType: 'unchanged',
-  };
+  const obj = unifyDocuments(before, after);
 
   const darkMode = useDarkMode();
 

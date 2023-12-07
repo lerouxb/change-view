@@ -11,7 +11,7 @@ const appStyles = css({
   width: '100vw',
   minHeight: '100vh',
   boxSizing: 'border-box',
-  padding: spacing[4]
+  padding: spacing[4],
 });
 
 const appStylesDark = css({
