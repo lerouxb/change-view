@@ -1,6 +1,6 @@
 import React, { useState, useContext, createContext } from 'react';
 
-import { BSONValue, Icon, css, cx, palette, spacing, fontFamilies } from '@mongodb-js/compass-components';
+import { BSONValue, Icon, css, cx, palette, spacing, fontFamilies, useDarkMode } from '@mongodb-js/compass-components';
 
 import { type Document } from 'bson';
 
@@ -37,11 +37,19 @@ const expandButton = css({
   alignSelf: 'center'
 });
 
-const addedStyles = css({
+const addedStylesDark = css({
+  backgroundColor: palette.green.dark2
+});
+
+const addedStylesLight = css({
   backgroundColor: palette.green.light1
 });
 
-const removedStyles = css({
+const removedStylesDark = css({
+  backgroundColor: palette.red.dark3
+});
+
+const removedStylesLight = css({
   backgroundColor: palette.red.light2
 });
 
@@ -89,13 +97,18 @@ const changeSummaryStyles = css({
   alignItems: 'flex-start'
 });
 
-function getChangeSummaryClass(obj: ObjectWithChange) {
+function getChangeSummaryClass(obj: ObjectWithChange, darkMode?: boolean) {
   const changeType = getChangeType(obj);
   if (changeType === 'unchanged' || changeType === 'changed') {
     return undefined;
   }
 
-  return changeType === 'added' ? addedStyles : removedStyles;
+  if (changeType === 'added') {
+    return darkMode ? addedStylesDark : addedStylesLight;
+  }
+  else {
+    return darkMode ? removedStylesDark : removedStylesLight;
+  }
 }
 
 function ChangeArrayItemArray({
@@ -111,6 +124,9 @@ function ChangeArrayItemArray({
 
   const text = 'Array';
 
+  const darkMode = useDarkMode();
+  const summaryClass = getChangeSummaryClass(item, darkMode);
+
   return (<div className={changeArrayItemStyles}>
     <div className={changeSummaryStyles}>
       <button
@@ -124,8 +140,8 @@ function ChangeArrayItemArray({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(item))}>{item.index}:</div>
-      <div className={getChangeSummaryClass(item)}>{text}</div>
+      <div className={cx(changeKeyIndexStyles, summaryClass)}>{item.index}:</div>
+      <div className={summaryClass}>{text}</div>
     </div>
     <ChangeArray obj={item} isOpen={isOpen}/>
   </div>);
@@ -145,6 +161,9 @@ function ChangeArrayItemObject({
 
   const text = 'Object';
 
+  const darkMode = useDarkMode();
+  const summaryClass = getChangeSummaryClass(item, darkMode);
+
   return (<div className={changeArrayItemStyles}>
     <div className={changeSummaryStyles}>
       <button
@@ -158,8 +177,8 @@ function ChangeArrayItemObject({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(item))}>{item.index}:</div>
-      <div className={getChangeSummaryClass(item)}>{text}</div>
+      <div className={cx(changeKeyIndexStyles, summaryClass)}>{item.index}:</div>
+      <div className={summaryClass}>{text}</div>
     </div>
     <ChangeObject obj={item} isOpen={isOpen} />
   </div>);
@@ -175,10 +194,13 @@ function ChangeArrayItemLeaf({
   item: ItemWithChange,
 }) {
 
+  const darkMode = useDarkMode();
+  const summaryClass = getChangeSummaryClass(item, darkMode);
+
   return (<div className={cx(changeArrayItemStyles, changeLeafStyles)}>
     <div className={changeSummaryStyles}>
-      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(item))}>{item.index}:</div>
-      <div className={getChangeSummaryClass(item)}><ChangeLeaf obj={item} /></div>
+      <div className={cx(changeKeyIndexStyles, summaryClass)}>{item.index}:</div>
+      <div className={summaryClass}><ChangeLeaf obj={item} /></div>
     </div>
   </div>);
 }
@@ -295,6 +317,9 @@ function ChangeObjectPropertyObject({
 
   const text = 'Object';
 
+  const darkMode = useDarkMode();
+  const summaryClass = getChangeSummaryClass(property, darkMode);
+
   return (<div className={changeObjectPropertyStyles}>
     <div className={changeSummaryStyles}>
       <button
@@ -308,8 +333,8 @@ function ChangeObjectPropertyObject({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(property))}>{property.objectKey}:</div>
-      <div className={getChangeSummaryClass(property)}>{text}</div>
+      <div className={cx(changeKeyIndexStyles, summaryClass)}>{property.objectKey}:</div>
+      <div className={summaryClass}>{text}</div>
     </div>
     <ChangeObject obj={property} isOpen={isOpen} />
   </div>);
@@ -334,6 +359,9 @@ function ChangeObjectPropertyArray({
 
   const text = 'Array';
 
+  const darkMode = useDarkMode();
+  const summaryClass = getChangeSummaryClass(property, darkMode);
+
   return (<div className={changeObjectPropertyStyles}>
     <div className={changeSummaryStyles}>
       <button
@@ -347,8 +375,8 @@ function ChangeObjectPropertyArray({
             glyph={isOpen ? 'CaretDown' : 'CaretRight'}
           ></Icon>
       </button>
-      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(property))}>{property.objectKey}:</div>
-      <div className={getChangeSummaryClass(property)}>{text}</div>
+      <div className={cx(changeKeyIndexStyles, summaryClass)}>{property.objectKey}:</div>
+      <div className={summaryClass}>{text}</div>
     </div>
     <ChangeArray obj={property} isOpen={isOpen}/>
   </div>);
@@ -359,10 +387,13 @@ function ChangeObjectPropertyLeaf({
 }: {
   property: PropertyWithChange
 }) {
+  const darkMode = useDarkMode();
+  const summaryClass = getChangeSummaryClass(property, darkMode);
+
   return (<div className={cx(changeObjectPropertyStyles, changeLeafStyles)}>
     <div className={changeSummaryStyles}>
-      <div className={cx(changeKeyIndexStyles, getChangeSummaryClass(property))}>{property.objectKey}:</div>
-      <div className={getChangeSummaryClass(property)}><ChangeLeaf obj={property} /></div>
+      <div className={cx(changeKeyIndexStyles, summaryClass)}>{property.objectKey}:</div>
+      <div className={summaryClass}><ChangeLeaf obj={property} /></div>
     </div>
   </div>);
 }
@@ -425,13 +456,16 @@ function ChangeObject({
   return null;
 }
 
-function getLeftClassName(obj: ObjectWithChange) {
+function getLeftClassName(obj: ObjectWithChange, darkMode?: boolean) {
+  const addedClass = darkMode ? addedStylesDark : addedStylesLight;
+  const removedClass = darkMode ? removedStylesDark : removedStylesLight;
+
   if (obj.implicitChangeType === 'removed') {
-    return removedStyles;
+    return removedClass;
   }
 
   if (obj.implicitChangeType === 'added') {
-    return addedStyles;
+    return addedClass;
   }
 
   if (obj.changeType === 'unchanged') {
@@ -439,14 +473,14 @@ function getLeftClassName(obj: ObjectWithChange) {
   }
 
   if (obj.changeType === 'removed') {
-    return removedStyles;
+    return removedClass;
   }
 
-  return obj.changeType === 'changed' ? removedStyles : addedStyles;
+  return obj.changeType === 'changed' ? removedClass : addedClass;
 }
 
-function getRightClassName(obj: ObjectWithChange) {
-  return addedStyles;
+function getRightClassName(obj: ObjectWithChange, darkMode?: boolean) {
+  return darkMode ? addedStylesDark : addedStylesLight;
 }
 
 function getChangeType(obj: ObjectWithChange) {
@@ -504,8 +538,10 @@ function ChangeLeaf({
   const includeLeft = ['unchanged', 'changed', 'removed'].includes(changeType);
   const includeRight = ['changed', 'added'].includes(changeType);
 
-  // {includeLeft && <div className={getLeftClassName(obj)}>{toString((obj.left as Branch).path as ObjectPath, left)}</div>}
-  // {includeRight && <div className={getRightClassName(obj)}>{toString((obj.right as Branch).path as ObjectPath, right)}</div>}
+  const darkMode = useDarkMode();
+
+  // {includeLeft && <div className={getLeftClassName(obj, darkMode)}>{toString((obj.left as Branch).path as ObjectPath, left)}</div>}
+  // {includeRight && <div className={getRightClassName(obj, darkMode)}>{toString((obj.right as Branch).path as ObjectPath, right)}</div>}
 
   const leftValue = includeLeft ? lookupValue((obj.left as Branch).path, left) : undefined;
   const rightValue = includeRight ? lookupValue((obj.right as Branch).path, right) : undefined;
@@ -513,8 +549,8 @@ function ChangeLeaf({
   // TODO: BSONValue does not deal with `null`
   // TODO: BSONValue does not always show the bson type, so you can't spot bson type changes
   return <div className={changeValueStyles}>
-    {includeLeft && <div className={getLeftClassName(obj)}>{<BSONValue type={getType(leftValue)} value={leftValue} />}</div>}
-    {includeRight && <div className={getRightClassName(obj)}>{<BSONValue type={getType(rightValue)} value={rightValue} />}</div>}
+    {includeLeft && <div className={getLeftClassName(obj, darkMode)}>{<BSONValue type={getType(leftValue)} value={leftValue} />}</div>}
+    {includeRight && <div className={getRightClassName(obj, darkMode)}>{<BSONValue type={getType(rightValue)} value={rightValue} />}</div>}
   </div>;
 }
 
@@ -525,6 +561,13 @@ const changeViewStyles = css({
   fontFamily: fontFamilies.code,
   fontSize: '12px',
   lineHeight: '16px',
+});
+
+const changeViewStylesDark = css({
+  color: palette.gray.light2
+});
+
+const changeViewStylesLight = css({
   color: palette.gray.dark2
 });
 
@@ -561,10 +604,12 @@ export function ChangeView({
     changeType: 'unchanged',
   };
 
+  const darkMode = useDarkMode();
+
   // Keep the left and right values in context so that the ChangeLeaf component
   // can easily find them again to lookup the original BSON values. Otherwise
   // we'd have to pass references down through every component.
   return <LeftRightContext.Provider value={{ left: before, right: after }}>
-    <div className={changeViewStyles} data-testid={`change-view-{${name}}`}><ChangeObject obj={obj} isOpen={true} isRoot={true}/></div>
+    <div className={cx(changeViewStyles, darkMode ? changeViewStylesDark : changeViewStylesLight)} data-testid={`change-view-{${name}}`}><ChangeObject obj={obj} isOpen={true} isRoot={true}/></div>
   </LeftRightContext.Provider>;
 }

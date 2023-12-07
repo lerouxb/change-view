@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useLayoutEffect } from 'react';
 import { EJSON } from 'bson';
-import { Card, Select, OptionGroup, Option, css, spacing, fontFamilies } from '@mongodb-js/compass-components';
+import { useDarkMode, Card, Select, OptionGroup, Option, css, cx, spacing, fontFamilies, palette } from '@mongodb-js/compass-components';
 import type {Fixture } from './fixtures';
 import { fixtureGroups } from './fixtures';
 import { ChangeView } from './change-view';
@@ -8,9 +8,20 @@ import { ChangeView } from './change-view';
 const DEFAULT_FIXTURE = 'small change';
 
 const appStyles = css({
-  width: '100%',
-  maxWidth: '800px',
-  margin: '0 auto',
+  width: '100vw',
+  minHeight: '100vh',
+  boxSizing: 'border-box',
+  padding: spacing[4]
+});
+
+const appStylesDark = css({
+  backgroundColor: palette.gray.dark2,
+  color: palette.gray.light2
+});
+
+const appStylesLight = css({
+  backgroundColor: palette.gray.light2,
+  color: palette.gray.dark2
 });
 
 const fixtureSelectorStyles = css({
@@ -97,8 +108,10 @@ function App() {
     console.log(fixture);
   }, [fixture]);
 
+  const darkMode = useDarkMode();
+
   return (
-    <div className={appStyles}>
+    <div className={cx(appStyles, darkMode ? appStylesDark : appStylesLight)}>
       <div className={fixtureSelectorStyles}>
         {/* @ts-expect-error leafygreen unreasonably expects a labelledby here */}
         <Select onChange={onChangeFixture} allowDeselect={false} defaultValue={fixtureName} aria-label="Fixture" className={selectStyles}>
