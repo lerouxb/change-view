@@ -38,7 +38,8 @@ const expandButton = css({
     cursor: 'pointer',
   },
   display: 'flex',
-  alignSelf: 'center'
+  alignSelf: 'center',
+  color: 'inherit'
 });
 
 const addedStylesDark = css({
